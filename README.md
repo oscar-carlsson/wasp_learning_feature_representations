@@ -1,1 +1,1 @@
-# Wasp:learning feature representations
+# Wasp: learning feature representations
