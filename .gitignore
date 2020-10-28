@@ -2,3 +2,7 @@
 
 .idea/
 venv/
+
+# Data files
+*ubyte
+mnist/
