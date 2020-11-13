@@ -1,18 +1,32 @@
 import numpy as np
 import itertools
 
-def adjacency_mask(image, neighbour_type="orthogonal"):
 
-    shape = np.shape(image)[
-        :2
-    ]  # Only 2d images and we assume ev. channel is last index
+def adjacency_mask(image=None, shape=None, neighbour_type="orthogonal"):
+    if image:
+        img_shape = np.shape(image)[
+            :2
+        ]  # Only 2d images and we assume ev. channel is last index
+    if shape:
+        inp_shape = shape
+    if (image and shape) and inp_shape == img_shape:
+        shape = inp_shape
+    elif (image and shape) and inp_shape != img_shape:
+        raise ValueError("The provided image does not agree with the stated shape.")
+    elif image and not shape:
+        shape = img_shape
+    elif shape and not image:
+        shape = inp_shape
+    elif not image and not shape:
+        raise ValueError("You need to enter either an image or an image shape.")
+
     rows = shape[0]
     cols = shape[1]
     mask = np.zeros((rows * cols, rows * cols))
     for ii in range(rows * cols):
         index = index_flat_to_array(ii, shape)
         neighbours = get_neighbours(index, shape, neighbour_type=neighbour_type)
-        mask[ii,:].flat[neighbours] = 1
+        mask[ii, :].flat[neighbours] = 1
 
     return mask
 
