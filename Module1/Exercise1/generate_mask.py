@@ -2,7 +2,7 @@ import numpy as np
 import itertools
 
 
-def adjacency_mask(image=None, shape=None, neighbour_type="orthogonal"):
+def adjacency_mask(image=None, shape=None, mask_type="orthogonal"):
     if image:
         img_shape = np.shape(image)[
             :2
@@ -25,7 +25,7 @@ def adjacency_mask(image=None, shape=None, neighbour_type="orthogonal"):
     mask = np.zeros((rows * cols, rows * cols))
     for ii in range(rows * cols):
         index = index_flat_to_array(ii, shape)
-        neighbours = get_neighbours(index, shape, neighbour_type=neighbour_type)
+        neighbours = get_neighbours(index, shape, neighbour_type=mask_type)
         mask[ii, :].flat[neighbours] = 1
 
     return mask

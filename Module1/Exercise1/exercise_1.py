@@ -9,10 +9,10 @@ from generate_mask import adjacency_mask
 
 
 class GaussianModel(tf.keras.layers.Layer):
-    def __init__(self, shape):
+    def __init__(self, shape, mask_type="orthogonal"):
         super(GaussianModel, self).__init__()
-        self.mask = adjacency_mask(shape=(shape[0], shape[1]))
-        par = Params(shape,self.mask)
+        self.mask = adjacency_mask(shape=(shape[0], shape[1]), mask_type=mask_type)
+        par = Params(shape, self.mask)
         self.loc = par.mu
         self.covariance_matrix = par.cov
         self.z = tf.Variable(1, dtype=tf.float32)
@@ -93,8 +93,6 @@ train_images = train_images / 255
 train_images += np.random.normal(scale=1 / 100, size=np.shape(train_images))
 
 shape = np.shape(train_images)
-print(shape)
-
 train_images = np.reshape(train_images, (shape[0], shape[1] * shape[2]))
 
 train_images = [img - np.mean(img) for img in train_images]
@@ -156,7 +154,7 @@ for epoch in range(epochs):
     bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
     for step, (train_image_batch, _) in enumerate(train_dataset):
         step_loss, step_grads = train_step(train_image_batch)
-        #print(step_grads)
+        # print(step_grads)
         loss.append(step_loss)
         bar.update(step)
 
