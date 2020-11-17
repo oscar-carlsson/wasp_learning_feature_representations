@@ -23,13 +23,18 @@ class GaussianModel(tf.keras.layers.Layer):
         dim = shape[0] * shape[1]
 
         arr = tf.random.uniform((dim, dim), 0.1, 1, dtype=tf.float32) * self.mask
-        self.upper_precision = tf.Variable(
-            tf.linalg.band_part(arr, 0, -1), dtype=tf.float32
+        self.diag_precision = tf.Variable(
+            tf.linalg.band_part(arr, 0, 0), dtype=tf.float32
+        )
+        self.upper_precision = (
+            tf.Variable(tf.linalg.band_part(arr, 0, -1), dtype=tf.float32)
+            - self.diag_precision
         )
         self.lower_precision = tf.linalg.matrix_transpose(self.upper_precision)
 
         self.precision_matrix = tf.Variable(
-            self.upper_precision + self.lower_precision, dtype=tf.float32
+            self.upper_precision + self.diag_precision + self.lower_precision,
+            dtype=tf.float32,
         )
 
     def __call__(self, data):
@@ -106,7 +111,7 @@ eta = 0.001
 epochs = 1
 batch_size = 1
 
-model = GaussianModel((28, 28),mask_type="other")
+model = GaussianModel((28, 28), mask_type="other")
 
 loss_fcn = model.model_loss
 optimizer = optimizers.RMSprop(learning_rate=eta)
@@ -124,7 +129,7 @@ def train_step(data):
     grads_lower = tf.linalg.matrix_transpose(grads_upper)
     grads = grads_diag + grads_upper + grads_lower
 
-    optimizer.apply_gradients(zip([grads], [model.cov]))
+    optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
     return loss, grads
 
 
@@ -143,6 +148,7 @@ train_images = np.reshape(train_images, (shape[0], shape[1] * shape[2]))
 train_images = [img - np.mean(img) for img in train_images]
 train_images = np.array(train_images, dtype=np.single)
 
+"""# Test of forcing symmetric gradients.
 with tf.GradientTape(persistent=True) as tape:
     out2 = model(train_images[:3])
     print(out2)
@@ -156,19 +162,20 @@ grads_lower = tf.linalg.matrix_transpose(grads_upper)
 grads = grads_diag + grads_upper + grads_lower
 
 print(grads)
-
-plt.imshow(model.precision_matrix.numpy())
+mat_before = model.precision_matrix.numpy()
+plt.imshow(mat_before)
 plt.show()
 
 optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
 
-plt.imshow(model.precision_matrix.numpy())
+mat_after = model.precision_matrix.numpy()
+plt.imshow(mat_before - mat_after)
 plt.show()
-
+"""
 train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels))
 train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size=batch_size)
 
-loss = []
+
 widgets = [
     " [",
     progressbar.Timer(format="Elapsed time: %(elapsed)s"),
@@ -178,6 +185,10 @@ widgets = [
     progressbar.ETA(),
     ") ",
 ]
+
+precision_matrix_before = model.precision_matrix.numpy()
+loss = []
+grads = []
 for epoch in range(epochs):
     print("Start of epoch ", epoch + 1, "\n")
     bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
@@ -185,13 +196,21 @@ for epoch in range(epochs):
         step_loss, step_grads = train_step(train_image_batch)
         # print(step_grads)
         loss.append(step_loss)
+        if step % 100 == 0:
+            grads.append(step_grads.numpy())
         bar.update(step)
 
 plt.plot(loss)
 plt.show()
 
-plt.imshow(model.precision_matrix.numpy())
+precision_matrix_after = model.precision_matrix.numpy()
+
+plt.imshow(model.precision_matrix.numpy(), vmin=0, vmax=1)
 plt.show()
 
-plt.imshow(model.covariance_matrix.numpy())
+plt.imshow(precision_matrix_before - precision_matrix_after)
 plt.show()
+
+np.save("gradients.npy", grads)
+np.save("precision_matrix_before.npy", precision_matrix_before)
+np.save("precision_matrix_after.npy", precision_matrix_after)
