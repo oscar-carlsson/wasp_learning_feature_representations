@@ -6,6 +6,7 @@ import tensorflow_probability as tfp
 import matplotlib.pyplot as plt
 import progressbar
 from generate_mask import adjacency_mask
+import functools
 
 
 class GaussianModel(tf.keras.layers.Layer):
@@ -82,6 +83,68 @@ class GaussianModel(tf.keras.layers.Layer):
         loss = 1 / N * loss
         return loss
 
+    def test_loss(self):
+        return tf.reduce_sum(self.precision_matrix)+tf.reduce_sum(self.loc)
+
+    def data_point_weights(
+        self, data, det_noise_precision_matrix, noise_precision_matrix
+    ):
+        weights = tf.sqrt(
+            det_noise_precision_matrix / tf.linalg.det(self.precision_matrix)
+        ) * tf.exp(
+            tf.einsum(
+                "ki,ki->k",
+                data,
+                tf.einsum(
+                    "ij,kj->ki", noise_precision_matrix - self.precision_matrix, data
+                ),
+            )
+        )
+        return weights
+
+    def NCE(
+        self,
+        real_data,
+        noise_data,
+        noise_indicator_array,
+        det_noise_precision_matrix,
+        nosie_precision_matrix,
+        nu,
+        real_weights,
+        noise_weights,
+    ):
+        M = tf.math.count_nonzero(noise_indicator_array)
+        N = len(noise_indicator_array) - M
+        term_1_and_4 = (
+            1  # nu
+            / M
+            * (
+                tf.einsum(
+                    "ki,ki",
+                    real_data,
+                    tf.einsum(
+                        "ij,kj->ki",
+                        nosie_precision_matrix - self.precision_matrix,
+                        real_data,
+                    ),
+                )
+                # - tf.reduce_sum(tf.math.log(nu * real_weights + 1))
+                - tf.reduce_sum(tf.math.log(1 * real_weights + 1))
+            )
+        )
+        term_3 = -1 / N * tf.reduce_sum(tf.math.log(noise_weights + 1))
+
+        term_2 = (
+            -nu
+            / 2
+            * tf.math.log(
+                nu
+                ^ 2 * det_noise_precision_matrix / tf.linalg.det(self.precision_matrix)
+            )
+        )
+
+        return term_1_and_4 + term_2 + term_3
+
 
 class Params:
     def __init__(self, shape, mask):
@@ -133,9 +196,10 @@ class Params:
 
 learning_rate = 0.001
 eta = 0.75  # Probability that sample is real and not noise
-nu = 1/eta-1
-epochs = 1
+nu = 1 / eta - 1
+epochs = 3
 batch_size = 10
+NCE = False
 
 mask = adjacency_mask(shape=(28, 28), mask_type="orthogonal")
 params = Params((28, 28), mask=mask)
@@ -143,15 +207,39 @@ model = GaussianModel((28, 28), mask=mask, params=params)
 
 noise_params = Params((28, 28), mask=mask)
 det_noise_precision_matrix = tf.linalg.det(noise_params.precision_matrix)
+noise_precision_matrix = noise_params.precision_matrix
 
 loss_fcn = model.model_loss
+loss_fcn_NCE = model.NCE
 optimizer = optimizers.RMSprop(learning_rate=learning_rate)
 
 
 @tf.function
-def train_step(data):
+def train_step_nce(
+    real_data,
+    noise_data,
+    noise_indicator_array,
+    det_noise_precision_matrix,
+    noise_precision_matrix,
+    nu,
+):
     with tf.GradientTape() as tape:
-        loss = loss_fcn(model(data))
+        noise_weights = model.data_point_weights(
+            noise_data, det_noise_precision_matrix, noise_precision_matrix
+        )
+        real_weights = model.data_point_weights(
+            real_data, det_noise_precision_matrix, noise_precision_matrix
+        )
+        loss = loss_fcn_NCE(
+            real_data,
+            noise_data,
+            noise_indicator_array,
+            det_noise_precision_matrix,
+            noise_precision_matrix,
+            nu,
+            real_weights,
+            noise_weights,
+        )
 
     grads = tape.gradient(loss, model.precision_matrix) * model.mask
 
@@ -161,6 +249,28 @@ def train_step(data):
     grads = grads_diag + grads_upper + grads_lower
 
     optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
+    return loss, grads
+
+
+@tf.function
+def train_step(data):
+    with tf.GradientTape(persistent=True) as tape:
+
+        loss = loss_fcn(
+            data,
+        )
+
+    grads = tape.gradient(loss, model.precision_matrix) * model.mask
+    grads_diag = tf.linalg.band_part(grads, 0, 0)
+    grads_upper = tf.linalg.band_part(grads, 0, -1) - grads_diag
+    grads_lower = tf.linalg.matrix_transpose(grads_upper)
+    grads = grads_diag + grads_upper + grads_lower
+
+    optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
+
+    loc_grads = tape.gradient(loss, model.loc)
+    optimizer.apply_gradients(zip([loc_grads], [model.loc]))
+
     return loss, grads
 
 
@@ -178,7 +288,6 @@ train_images = np.reshape(train_images, (shape[0], shape[1] * shape[2]))
 
 train_images = [img - np.mean(img) for img in train_images]
 train_images = np.array(train_images, dtype=np.single)
-
 
 train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels))
 train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size=batch_size)
@@ -201,11 +310,40 @@ for epoch in range(epochs):
     print("Start of epoch ", epoch + 1, "\n")
     bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
     for step, (train_image_batch, _) in enumerate(train_dataset):
-        step_loss, step_grads = train_step(train_image_batch)
-        # print(step_grads)
-        loss.append(step_loss)
+        if NCE:
+            train_image_batch = tf.Variable(train_image_batch)
+            noise_image_batch = tf.Variable(noise_params.generate_samples(batch_size))
+            noise_indicator_array = np.random.binomial(1, eta, batch_size)
+            tmp_real = []
+            tmp_noise = []
+            for index, indicator in enumerate(noise_indicator_array):
+                if indicator == 1:
+                    tmp_real.append(train_image_batch[index])
+                else:
+                    tmp_noise.append(noise_image_batch[index])
+
+            """sort_index = np.argsort(noise_indicator_array)
+            for ind in range(len(tmp)):
+                train_image_batch[ind].assign(tmp[sort_index[ind]])
+            noise_indicator_array = noise_indicator_array[sort_index]"""
+
+            train_image_batch = tf.convert_to_tensor(tmp_real)
+            noise_image_batch = tf.convert_to_tensor(tmp_noise)
+
+            step_loss, step_grads = train_step_nce(
+                train_image_batch,
+                noise_image_batch,
+                noise_indicator_array,
+                det_noise_precision_matrix,
+                noise_precision_matrix,
+                nu,
+            )
+        else:
+            step_loss, step_grads = train_step(train_image_batch)
+
         if step % 100 == 0:
             grads.append(step_grads.numpy())
+            loss.append(step_loss)
         bar.update(step)
 
 plt.plot(loss)
@@ -223,27 +361,18 @@ np.save("gradients.npy", grads)
 np.save("precision_matrix_before.npy", precision_matrix_before)
 np.save("precision_matrix_after.npy", precision_matrix_after)
 
-"""# Test of forcing symmetric gradients.
+'''# Test of forcing symmetric gradients.
 with tf.GradientTape(persistent=True) as tape:
     out2 = model(train_images[:3])
     print(out2)
-    loss = model.model_loss(train_images[:3])
+    loss = model.test_loss()
     print(loss)
+    loc = model.loc
 
-grads = tape.gradient(loss, model.precision_matrix) * model.mask
-grads_diag = tf.linalg.band_part(grads, 0, 0)
-grads_upper = tf.linalg.band_part(grads, 0, -1) - grads_diag
-grads_lower = tf.linalg.matrix_transpose(grads_upper)
-grads = grads_diag + grads_upper + grads_lower
+print(model.loc)
+
+grads = tape.gradient(loc, model.loc)
+#grads = tape.gradient(loss, [model.precision_matrix, model.loc])
 
 print(grads)
-mat_before = model.precision_matrix.numpy()
-plt.imshow(mat_before)
-plt.show()
-
-optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
-
-mat_after = model.precision_matrix.numpy()
-plt.imshow(mat_before - mat_after)
-plt.show()
-"""
+optimizer.apply_gradients(zip([grads], [model.precision_matrix]))'''
