@@ -36,32 +36,46 @@ def get_neighbours(
 ):
     row, col = index[0], index[1]
     rows, cols = shape[0], shape[1]
-
-    if row == 0:
-        row_neighbours = [row, row + 1]
-    elif row == rows - 1:
-        row_neighbours = [row - 1, row]
+    if neighbour_type == "diagonal":
+        if row == col:
+            if row == 0:
+                neighbours = [(row, row), (row + 1, row + 1)]
+            elif row == rows - 1:
+                neighbours = [(row - 1, row - 1), (row, row)]
+            else:
+                neighbours = [(row - 1, row - 1), (row, row), (row + 1, row + 1)]
+        else:
+            neighbours = []
+    elif neighbour_type == "self":
+        neighbours = [(row, col)]
     else:
-        row_neighbours = [row - 1, row, row + 1]
+        if row == 0:
+            row_neighbours = [row, row + 1]
+        elif row == rows - 1:
+            row_neighbours = [row - 1, row]
+        else:
+            row_neighbours = [row - 1, row, row + 1]
 
-    if col == 0:
-        col_neighbours = [col, col + 1]
-    elif col == cols - 1:
-        col_neighbours = [col - 1, col]
-    else:
-        col_neighbours = [col - 1, col, col + 1]
+        if col == 0:
+            col_neighbours = [col, col + 1]
+        elif col == cols - 1:
+            col_neighbours = [col - 1, col]
+        else:
+            col_neighbours = [col - 1, col, col + 1]
 
-    neighbours = list(itertools.product(row_neighbours, col_neighbours))
+        neighbours = list(itertools.product(row_neighbours, col_neighbours))
 
-    if neighbour_type == "orthogonal":
-        rem = []
-        for neighbour in neighbours:
-            if manhattan_distance(index, neighbour) > 1:
-                rem.append(neighbour)
-        for coord in rem:
-            neighbours.remove(coord)
+        if neighbour_type == "orthogonal":
+            rem = []
+            for neighbour in neighbours:
+                if manhattan_distance(index, neighbour) > 1:
+                    rem.append(neighbour)
+            for coord in rem:
+                neighbours.remove(coord)
+
     if out_type == "flat":
         neighbours = index_array_to_flat(neighbours, shape, flatten_type=flatten_type)
+
     return neighbours
 
 
