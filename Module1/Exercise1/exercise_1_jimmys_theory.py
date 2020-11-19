@@ -52,8 +52,8 @@ class GaussianModel(tf.keras.layers.Layer):
         return distr"""
 
     @property
-    def cov(self):
-        return self.covariance_matrix
+    def covariance_matrix(self):
+        return tf.linalg.inv(self.precision_matrix)
 
     def grad_log_model_old(self, data):
         grad_x = -tf.einsum("ij,sj->si", self.cov, (data - self.loc))
@@ -84,7 +84,7 @@ class GaussianModel(tf.keras.layers.Layer):
         return loss
 
     def test_loss(self):
-        return tf.reduce_sum(self.precision_matrix)+tf.reduce_sum(self.loc)
+        return tf.reduce_sum(self.precision_matrix) + tf.reduce_sum(self.loc)
 
     def data_point_weights(
         self, data, det_noise_precision_matrix, noise_precision_matrix
@@ -113,33 +113,34 @@ class GaussianModel(tf.keras.layers.Layer):
         real_weights,
         noise_weights,
     ):
-        M = tf.math.count_nonzero(noise_indicator_array)
-        N = len(noise_indicator_array) - M
+        N = tf.math.count_nonzero(noise_indicator_array, dtype=tf.float32)
+        M = len(noise_indicator_array) - N
         term_1_and_4 = (
-            1  # nu
+            nu
             / M
             * (
                 tf.einsum(
                     "ki,ki",
-                    real_data,
+                    noise_data,
                     tf.einsum(
                         "ij,kj->ki",
                         nosie_precision_matrix - self.precision_matrix,
-                        real_data,
+                        noise_data,
                     ),
                 )
-                # - tf.reduce_sum(tf.math.log(nu * real_weights + 1))
-                - tf.reduce_sum(tf.math.log(1 * real_weights + 1))
+                - tf.reduce_sum(tf.math.log(nu * real_weights + 1))
+                #- tf.reduce_sum(tf.math.log(1 * noise_weights + 1))
             )
         )
-        term_3 = -1 / N * tf.reduce_sum(tf.math.log(noise_weights + 1))
+        term_3 = -1 / N * tf.reduce_sum(tf.math.log(real_weights + 1))
 
         term_2 = (
             -nu
             / 2
             * tf.math.log(
-                nu
-                ^ 2 * det_noise_precision_matrix / tf.linalg.det(self.precision_matrix)
+                nu ** 2
+                * det_noise_precision_matrix
+                / tf.linalg.det(self.precision_matrix)
             )
         )
 
@@ -147,30 +148,36 @@ class GaussianModel(tf.keras.layers.Layer):
 
 
 class Params:
-    def __init__(self, shape, mask):
+    def __init__(self, shape, mask, loc=None, precision_matrix=None):
         # Temporary values for testing:
         # self.cov=tf.Variable(tf.eye(dim),dtype=tf.float32) # This works
         rows = shape[0]
         cols = shape[1]
         dim = rows * cols
-        self.mu = tf.zeros((1, dim), dtype=tf.float32)
+        if loc is None:
+            self.mu = tf.zeros((1, dim), dtype=tf.float32)
+        else:
+            self.mu = loc
 
-        dim = shape[0] * shape[1]
+        if precision_matrix is None:
+            dim = shape[0] * shape[1]
 
-        arr = tf.random.uniform((dim, dim), 0.1, 1, dtype=tf.float32) * mask
-        self.diag_precision = tf.Variable(
-            tf.linalg.band_part(arr, 0, 0), dtype=tf.float32
-        )
-        self.upper_precision = (
-            tf.Variable(tf.linalg.band_part(arr, 0, -1), dtype=tf.float32)
-            - self.diag_precision
-        )
-        self.lower_precision = tf.linalg.matrix_transpose(self.upper_precision)
+            arr = tf.random.uniform((dim, dim), 0.1, 1, dtype=tf.float32) * mask
+            self.diag_precision = tf.Variable(
+                tf.linalg.band_part(arr, 0, 0), dtype=tf.float32
+            )
+            self.upper_precision = (
+                tf.Variable(tf.linalg.band_part(arr, 0, -1), dtype=tf.float32)
+                - self.diag_precision
+            )
+            self.lower_precision = tf.linalg.matrix_transpose(self.upper_precision)
 
-        self.precision_matrix = tf.Variable(
-            self.upper_precision + self.diag_precision + self.lower_precision,
-            dtype=tf.float32,
-        )
+            self.precision_matrix = tf.Variable(
+                self.upper_precision + self.diag_precision + self.lower_precision,
+                dtype=tf.float32,
+            )
+        else:
+            self.precision_matrix = precision_matrix
 
     def get_distribution(self):
         tfp.distributions.MultivariateNormalFullCovariance(
@@ -197,9 +204,9 @@ class Params:
 learning_rate = 0.001
 eta = 0.75  # Probability that sample is real and not noise
 nu = 1 / eta - 1
-epochs = 3
+epochs = 5
 batch_size = 10
-NCE = False
+NCE = True
 
 mask = adjacency_mask(shape=(28, 28), mask_type="orthogonal")
 params = Params((28, 28), mask=mask)
@@ -268,8 +275,8 @@ def train_step(data):
 
     optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
 
-    loc_grads = tape.gradient(loss, model.loc)
-    optimizer.apply_gradients(zip([loc_grads], [model.loc]))
+    """loc_grads = tape.gradient(loss, model.loc)
+    optimizer.apply_gradients(zip([loc_grads], [model.loc]))"""
 
     return loss, grads
 
@@ -286,7 +293,9 @@ train_images += np.random.normal(scale=1 / 100, size=np.shape(train_images))
 shape = np.shape(train_images)
 train_images = np.reshape(train_images, (shape[0], shape[1] * shape[2]))
 
-train_images = [img - np.mean(img) for img in train_images]
+pixel_wise_mean = np.mean(train_images, axis=0)
+
+train_images = train_images - pixel_wise_mean
 train_images = np.array(train_images, dtype=np.single)
 
 train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels))
@@ -304,11 +313,16 @@ widgets = [
 ]
 
 precision_matrix_before = model.precision_matrix.numpy()
+loss_steps = []
 loss = []
+loss_diff = []
 grads = []
-for epoch in range(epochs):
+epoch = 0
+# for epoch in range(epochs):
+while True:
     print("Start of epoch ", epoch + 1, "\n")
     bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
+    loss_step = []
     for step, (train_image_batch, _) in enumerate(train_dataset):
         if NCE:
             train_image_batch = tf.Variable(train_image_batch)
@@ -330,6 +344,13 @@ for epoch in range(epochs):
             train_image_batch = tf.convert_to_tensor(tmp_real)
             noise_image_batch = tf.convert_to_tensor(tmp_noise)
 
+            """print(
+                "Real data shape: ",
+                train_image_batch,
+                ", noise data shape: ",
+                noise_image_batch,
+            )"""
+
             step_loss, step_grads = train_step_nce(
                 train_image_batch,
                 noise_image_batch,
@@ -343,25 +364,55 @@ for epoch in range(epochs):
 
         if step % 100 == 0:
             grads.append(step_grads.numpy())
-            loss.append(step_loss)
+            loss_step.append(step_loss)
         bar.update(step)
+
+    loss_steps.append(loss_step)
+    loss.append(np.mean(loss_step))
+
+    print("End of epoch loss: ", np.mean(loss_step))
+
+    if epoch >= 1:
+        print(
+            "np.abs(np.mean(loss_step) - loss[-2]) = ",
+            np.abs(np.mean(loss_step) - loss[-2]),
+        )
+        loss_diff.append(np.abs(np.mean(loss_step) - loss[-2]))
+        if np.abs(np.mean(loss_step) - loss[-2]) < 2e3:
+            break
+        if epoch >= 2:
+            if loss_diff[-2] < loss_diff[-1]:
+                break
+
+    epoch += 1
 
 plt.plot(loss)
 plt.show()
 
 precision_matrix_after = model.precision_matrix.numpy()
+covariance_matrix_after = model.covariance_matrix.numpy()
 
-plt.imshow(model.precision_matrix.numpy(), vmin=0, vmax=1)
+plt.imshow(precision_matrix_after, vmin=0, vmax=1)
 plt.show()
 
-plt.imshow(precision_matrix_before - precision_matrix_after)
+plt.imshow(covariance_matrix_after)
 plt.show()
 
 np.save("gradients.npy", grads)
 np.save("precision_matrix_before.npy", precision_matrix_before)
 np.save("precision_matrix_after.npy", precision_matrix_after)
 
-'''# Test of forcing symmetric gradients.
+params_after_training = Params(
+    (28, 28), mask, loc=model.loc, precision_matrix=model.precision_matrix
+)
+sample = params_after_training.generate_samples(3)
+sample = np.reshape(sample, (3, 28, 28))
+
+for img in sample:
+    plt.imshow(img)
+    plt.show()
+
+"""# Test of forcing symmetric gradients.
 with tf.GradientTape(persistent=True) as tape:
     out2 = model(train_images[:3])
     print(out2)
@@ -375,4 +426,4 @@ grads = tape.gradient(loc, model.loc)
 #grads = tape.gradient(loss, [model.precision_matrix, model.loc])
 
 print(grads)
-optimizer.apply_gradients(zip([grads], [model.precision_matrix]))'''
+optimizer.apply_gradients(zip([grads], [model.precision_matrix]))"""
