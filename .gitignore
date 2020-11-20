@@ -6,3 +6,10 @@ venv/
 # Data files
 *ubyte
 mnist/
+
+# Tex auxiliary files
+*.aux
+*.log
+*.out
+*.gz
+
