@@ -90,7 +90,7 @@ class GaussianModel(tf.keras.layers.Layer):
         self, data, det_noise_precision_matrix, noise_precision_matrix
     ):
         weights = tf.sqrt(
-            det_noise_precision_matrix / tf.linalg.det(self.precision_matrix)
+            det_noise_precision_matrix / tf.exp(tf.linalg.logdet(self.precision_matrix))
         ) * tf.exp(
             tf.einsum(
                 "ki,ki->k",
@@ -102,7 +102,7 @@ class GaussianModel(tf.keras.layers.Layer):
         )
         return weights
 
-    def NCE(
+    def NCE_old(
         self,
         real_data,
         noise_data,
@@ -115,7 +115,7 @@ class GaussianModel(tf.keras.layers.Layer):
     ):
         N = tf.math.count_nonzero(noise_indicator_array, dtype=tf.float32)
         M = len(noise_indicator_array) - N
-        term_1_and_4 = (
+        term_1 = (
             nu
             / M
             * (
@@ -128,27 +128,103 @@ class GaussianModel(tf.keras.layers.Layer):
                         noise_data,
                     ),
                 )
-                - tf.reduce_sum(tf.math.log(nu * real_weights + 1))
-                #- tf.reduce_sum(tf.math.log(1 * noise_weights + 1))
             )
         )
-        term_3 = -1 / N * tf.reduce_sum(tf.math.log(real_weights + 1))
-
         term_2 = (
             -nu
             / 2
             * tf.math.log(
                 nu ** 2
                 * det_noise_precision_matrix
-                / tf.linalg.det(self.precision_matrix)
+                / tf.exp(tf.linalg.logdet(self.precision_matrix))
             )
         )
 
-        return term_1_and_4 + term_2 + term_3
+        term_3 = -1 / N * tf.reduce_sum(tf.math.log(real_weights + 1))
+        term_4 = -nu / M * tf.reduce_sum(tf.math.log(nu * real_weights + 1))
+
+        return term_1 + term_2 + term_3 + term_4
+
+    def NCE_real_data_terms(
+        self, real_data, det_noise_precision_matrix, noise_precision_matrix
+    ):
+        real_weights = model.data_point_weights(
+            real_data, det_noise_precision_matrix, noise_precision_matrix
+        )
+        N = tf.shape(real_data).numpy()[0]
+        term_3 = -1 / N * tf.reduce_sum(tf.math.log(real_weights + 1))
+        return term_3
+
+    def NCE_noise_data_terms(
+        self, noise_data, nu, det_noise_precision_matrix, noise_precision_matrix
+    ):
+        M = tf.shape(noise_data).numpy()[0]
+        noise_weights = model.data_point_weights(
+            noise_data, det_noise_precision_matrix, noise_precision_matrix
+        )
+        term_1 = (
+            nu
+            / M
+            * (
+                tf.einsum(
+                    "ki,ki",
+                    noise_data,
+                    tf.einsum(
+                        "ij,kj->ki",
+                        noise_precision_matrix - self.precision_matrix,
+                        noise_data,
+                    ),
+                )
+            )
+        )
+        term_4 = -nu / M * tf.reduce_sum(tf.math.log(nu * noise_weights + 1))
+        return term_1 + term_4
+
+    def NCE_precision_matrix_term(self, nu, det_noise_precision_matrix):
+        term_2 = (
+            -nu
+            / 2
+            * tf.math.log(
+                nu ** 2
+                * det_noise_precision_matrix
+                / tf.exp(tf.linalg.logdet(self.precision_matrix))
+            )
+        )
+        return term_2
+
+    def NCE_zero(self):
+        return 0
+
+    def NCE(
+        self,
+        real_data,
+        noise_data,
+        det_noise_precision_matrix,
+        noise_precision_matrix,
+        nu,
+    ):
+        loss = 0
+        loss = loss + tf.cond(
+            tf.shape(real_data).numpy()[0] != 0,
+            lambda: self.NCE_real_data_terms(
+                real_data, det_noise_precision_matrix, noise_precision_matrix
+            ),
+            lambda: self.NCE_zero(),
+        )
+        loss = loss + tf.cond(
+            tf.shape(noise_data).numpy()[0] != 0,
+            lambda: self.NCE_noise_data_terms(
+                noise_data, nu, det_noise_precision_matrix, noise_precision_matrix
+            ),
+            lambda: self.NCE_zero(),
+        )
+        loss = loss + self.NCE_precision_matrix_term(nu, det_noise_precision_matrix)
+
+        return loss
 
 
 class Params:
-    def __init__(self, shape, mask, loc=None, precision_matrix=None):
+    def __init__(self, shape, mask, loc=None, precision_matrix=None, only_ones=False):
         # Temporary values for testing:
         # self.cov=tf.Variable(tf.eye(dim),dtype=tf.float32) # This works
         rows = shape[0]
@@ -160,22 +236,37 @@ class Params:
             self.mu = loc
 
         if precision_matrix is None:
-            dim = shape[0] * shape[1]
+            if only_ones:
+                tmp = tf.Variable(np.ones((dim, dim)) * mask, dtype=tf.float32)
+            else:
+                arr = tf.math.abs(
+                    tf.random.uniform((dim, dim), 0.1, 1, dtype=tf.float32) * mask
+                )
+                self.diag_precision = tf.Variable(
+                    tf.linalg.band_part(arr, 0, 0), dtype=tf.float32
+                )
+                self.upper_precision = (
+                    tf.Variable(tf.linalg.band_part(arr, 0, -1), dtype=tf.float32)
+                    - self.diag_precision
+                )
+                self.lower_precision = tf.linalg.matrix_transpose(self.upper_precision)
 
-            arr = tf.random.uniform((dim, dim), 0.1, 1, dtype=tf.float32) * mask
-            self.diag_precision = tf.Variable(
-                tf.linalg.band_part(arr, 0, 0), dtype=tf.float32
-            )
-            self.upper_precision = (
-                tf.Variable(tf.linalg.band_part(arr, 0, -1), dtype=tf.float32)
-                - self.diag_precision
-            )
-            self.lower_precision = tf.linalg.matrix_transpose(self.upper_precision)
+                tmp = tf.Variable(
+                    self.upper_precision + self.diag_precision + self.lower_precision,
+                    dtype=tf.float32,
+                )
 
-            self.precision_matrix = tf.Variable(
-                self.upper_precision + self.diag_precision + self.lower_precision,
-                dtype=tf.float32,
-            )
+            try:
+                np.linalg.cholesky(tmp.numpy())
+                self.precision_matrix = tmp
+            except:
+                self.precision_matrix = []
+                plt.imshow(tmp.numpy())
+                plt.show()
+                print("Cholesky decomposition failed.")
+                raise AssertionError(
+                    "The precision matrix needs to be positive definite."
+                )
         else:
             self.precision_matrix = precision_matrix
 
@@ -201,27 +292,7 @@ class Params:
         return tf.linalg.inv(self.precision_matrix)
 
 
-learning_rate = 0.001
-eta = 0.75  # Probability that sample is real and not noise
-nu = 1 / eta - 1
-epochs = 5
-batch_size = 10
-NCE = True
-
-mask = adjacency_mask(shape=(28, 28), mask_type="orthogonal")
-params = Params((28, 28), mask=mask)
-model = GaussianModel((28, 28), mask=mask, params=params)
-
-noise_params = Params((28, 28), mask=mask)
-det_noise_precision_matrix = tf.linalg.det(noise_params.precision_matrix)
-noise_precision_matrix = noise_params.precision_matrix
-
-loss_fcn = model.model_loss
-loss_fcn_NCE = model.NCE
-optimizer = optimizers.RMSprop(learning_rate=learning_rate)
-
-
-@tf.function
+# @tf.function
 def train_step_nce(
     real_data,
     noise_data,
@@ -229,26 +300,34 @@ def train_step_nce(
     det_noise_precision_matrix,
     noise_precision_matrix,
     nu,
+    last_precision_matrix,
 ):
     with tf.GradientTape() as tape:
-        noise_weights = model.data_point_weights(
+        """noise_weights = model.data_point_weights(
             noise_data, det_noise_precision_matrix, noise_precision_matrix
-        )
-        real_weights = model.data_point_weights(
-            real_data, det_noise_precision_matrix, noise_precision_matrix
-        )
+        )"""
+    try:
         loss = loss_fcn_NCE(
             real_data,
             noise_data,
-            noise_indicator_array,
+            # noise_indicator_array,
             det_noise_precision_matrix,
             noise_precision_matrix,
             nu,
-            real_weights,
-            noise_weights,
+            # real_weights,
+            # noise_weights,
         )
 
-    grads = tape.gradient(loss, model.precision_matrix) * model.mask
+
+        grads = tape.gradient(loss, model.precision_matrix) * model.mask
+    except:
+        np.save(
+            "current_precision_matrix_before_crash.npy", model.precision_matrix.numpy()
+        )
+        np.save(
+            "previous_precision_matrix_before_crash.npy", last_precision_matrix.numpy()
+        )
+        raise AssertionError("Some matrix is not invertible.")
 
     grads_diag = tf.linalg.band_part(grads, 0, 0)
     grads_upper = tf.linalg.band_part(grads, 0, -1) - grads_diag
@@ -267,7 +346,12 @@ def train_step(data):
             data,
         )
 
-    grads = tape.gradient(loss, model.precision_matrix) * model.mask
+    try:
+        grads = tape.gradient(loss, model.precision_matrix) * model.mask
+    except:
+        np.save("precision_matrix_before_crash.npy", model.precision_matrix.numpy())
+        raise AssertionError("Some matrix is not invertible.")
+
     grads_diag = tf.linalg.band_part(grads, 0, 0)
     grads_upper = tf.linalg.band_part(grads, 0, -1) - grads_diag
     grads_lower = tf.linalg.matrix_transpose(grads_upper)
@@ -281,10 +365,20 @@ def train_step(data):
     return loss, grads
 
 
+learning_rate = 0.001
+eta = 0.75  # Probability that sample is real and not noise
+nu = 1 / eta - 1
+epochs = 5
+batch_size = 10
+NCE = True
+
+
 data_dictionary = get_mnist()
 
 train_images = data_dictionary["train-images"]
 train_labels = data_dictionary["train-labels"]
+
+train_images = np.random.uniform(0, 255, (60000, 3, 3))
 
 train_images = train_images / 255
 
@@ -301,6 +395,22 @@ train_images = np.array(train_images, dtype=np.single)
 train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels))
 train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size=batch_size)
 
+mask = adjacency_mask(shape=(shape[1], shape[2]), mask_type="self")
+params = Params((shape[1], shape[2]), mask=mask, only_ones=False)
+model = GaussianModel((shape[1], shape[2]), mask=mask, params=params)
+
+noise_params = Params((shape[1], shape[2]), mask=mask, only_ones=False)
+det_noise_precision_matrix = tf.exp(tf.linalg.logdet(noise_params.precision_matrix))
+noise_precision_matrix = noise_params.precision_matrix
+
+prec = model.covariance_matrix.numpy()
+plt.imshow(prec)
+plt.show()
+
+
+loss_fcn = model.model_loss
+loss_fcn_NCE = model.NCE
+optimizer = optimizers.RMSprop(learning_rate=learning_rate)
 
 widgets = [
     " [",
@@ -319,6 +429,9 @@ loss_diff = []
 grads = []
 epoch = 0
 # for epoch in range(epochs):
+last_precision_matrix = model.precision_matrix
+current_precision_matrix = model.precision_matrix
+nan_precision = False
 while True:
     print("Start of epoch ", epoch + 1, "\n")
     bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
@@ -358,9 +471,19 @@ while True:
                 det_noise_precision_matrix,
                 noise_precision_matrix,
                 nu,
+                last_precision_matrix,
             )
+
         else:
             step_loss, step_grads = train_step(train_image_batch)
+
+        if step > 1:
+            last_precision_matrix = current_precision_matrix
+            current_precision_matrix = model.precision_matrix
+
+        if np.any(np.isnan(model.precision_matrix.numpy())):
+            nan_precision = True
+            break
 
         if step % 100 == 0:
             grads.append(step_grads.numpy())
@@ -383,6 +506,8 @@ while True:
         if epoch >= 2:
             if loss_diff[-2] < loss_diff[-1]:
                 break
+    if nan_precision:
+        break
 
     epoch += 1
 
