@@ -22,13 +22,19 @@ class GaussianModel(tf.keras.layers.Layer):
             par = params
 
         self.loc = par.mu
-        self.precision_matrix = par.precision_matrix
+        #self.precision_matrix = par.precision_matrix
+
+        dim = np.prod(shape)
+
+        self.A = tf.Variable(tf.math.abs(
+                    tf.random.uniform((dim, dim), 0.1, 1, dtype=tf.float32)
+                ),name='A')
 
         prec_inv = tf.linalg.inv(self.precision_matrix)
         cov_det = tf.linalg.det(
             prec_inv
         )  # Apparently -inf. Det(precision)=0 according to tensorflow
-        self.z = tf.Variable(1, dtype=tf.float32)
+        self.z = tf.Variable(1, dtype=tf.float32,name='Z')
         """(2 * np.pi) ** (0.5 * dim) * tf.abs(
             cov_det
         ) ** 0.5"""
@@ -54,6 +60,10 @@ class GaussianModel(tf.keras.layers.Layer):
     @property
     def covariance_matrix(self):
         return tf.linalg.inv(self.precision_matrix)
+
+    @property
+    def precision_matrix(self):
+        return tf.matmul(tf.linalg.matrix_transpose(self.A), self.A) * self.mask
 
     def grad_log_model_old(self, data):
         grad_x = -tf.einsum("ij,sj->si", self.cov, (data - self.loc))
@@ -306,35 +316,37 @@ def train_step_nce(
         """noise_weights = model.data_point_weights(
             noise_data, det_noise_precision_matrix, noise_precision_matrix
         )"""
-    try:
-        loss = loss_fcn_NCE(
-            real_data,
-            noise_data,
-            # noise_indicator_array,
-            det_noise_precision_matrix,
-            noise_precision_matrix,
-            nu,
-            # real_weights,
-            # noise_weights,
-        )
+        try:
+            loss = loss_fcn_NCE(
+                real_data,
+                noise_data,
+                # noise_indicator_array,
+                det_noise_precision_matrix,
+                noise_precision_matrix,
+                nu,
+                # real_weights,
+                # noise_weights,
+            )
 
 
-        grads = tape.gradient(loss, model.precision_matrix) * model.mask
-    except:
-        np.save(
-            "current_precision_matrix_before_crash.npy", model.precision_matrix.numpy()
-        )
-        np.save(
-            "previous_precision_matrix_before_crash.npy", last_precision_matrix.numpy()
-        )
-        raise AssertionError("Some matrix is not invertible.")
+            #grads = tape.gradient(loss, model.precision_matrix) * model.mask
+            grads = tape.gradient(loss, model.A)
+        except:
+            np.save(
+                "current_precision_matrix_before_crash.npy", model.precision_matrix.numpy()
+            )
+            np.save(
+                "previous_precision_matrix_before_crash.npy", last_precision_matrix.numpy()
+            )
+            raise AssertionError("Some matrix is not invertible.")
 
-    grads_diag = tf.linalg.band_part(grads, 0, 0)
+    '''grads_diag = tf.linalg.band_part(grads, 0, 0)
     grads_upper = tf.linalg.band_part(grads, 0, -1) - grads_diag
     grads_lower = tf.linalg.matrix_transpose(grads_upper)
     grads = grads_diag + grads_upper + grads_lower
 
-    optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
+    optimizer.apply_gradients(zip([grads], [model.precision_matrix]))'''
+    optimizer.apply_gradients(zip([grads],[model.A]))
     return loss, grads
 
 
@@ -368,17 +380,17 @@ def train_step(data):
 learning_rate = 0.001
 eta = 0.75  # Probability that sample is real and not noise
 nu = 1 / eta - 1
-epochs = 5
+epochs = 1
 batch_size = 10
 NCE = True
-
+mask_type = "self"
 
 data_dictionary = get_mnist()
 
 train_images = data_dictionary["train-images"]
 train_labels = data_dictionary["train-labels"]
 
-train_images = np.random.uniform(0, 255, (60000, 3, 3))
+train_images = np.random.uniform(0, 255, (60000, 5, 5))
 
 train_images = train_images / 255
 
@@ -395,13 +407,14 @@ train_images = np.array(train_images, dtype=np.single)
 train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels))
 train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size=batch_size)
 
-mask = adjacency_mask(shape=(shape[1], shape[2]), mask_type="self")
+mask = adjacency_mask(shape=(shape[1], shape[2]), mask_type=mask_type)
 params = Params((shape[1], shape[2]), mask=mask, only_ones=False)
 model = GaussianModel((shape[1], shape[2]), mask=mask, params=params)
 
 noise_params = Params((shape[1], shape[2]), mask=mask, only_ones=False)
 det_noise_precision_matrix = tf.exp(tf.linalg.logdet(noise_params.precision_matrix))
 noise_precision_matrix = noise_params.precision_matrix
+
 
 prec = model.covariance_matrix.numpy()
 plt.imshow(prec)
@@ -428,11 +441,12 @@ loss = []
 loss_diff = []
 grads = []
 epoch = 0
-# for epoch in range(epochs):
+
 last_precision_matrix = model.precision_matrix
 current_precision_matrix = model.precision_matrix
 nan_precision = False
-while True:
+for epoch in range(epochs):
+#while True:
     print("Start of epoch ", epoch + 1, "\n")
     bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
     loss_step = []
@@ -511,7 +525,10 @@ while True:
 
     epoch += 1
 
-plt.plot(loss)
+if epochs==1:
+    plt.plot(loss_step)
+else:
+    plt.plot(loss)
 plt.show()
 
 precision_matrix_after = model.precision_matrix.numpy()
