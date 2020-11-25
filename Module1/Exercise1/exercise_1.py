@@ -10,6 +10,7 @@ import functools
 import time
 import scipy.linalg
 
+
 class GaussianModel(tf.keras.layers.Layer):
     def __init__(self, shape, mask=None, mask_type="orthogonal", params=None):
         super(GaussianModel, self).__init__()
@@ -176,13 +177,15 @@ class Params:
 
         if precision_matrix is None:
             if only_ones:
-                tmp = tf.Variable(np.ones((self.dim, self.dim)) * mask, dtype=tf.float64)
+                tmp = tf.Variable(
+                    np.ones((self.dim, self.dim)) * mask, dtype=tf.float64
+                )
             else:
                 arr = tf.math.abs(
                     tf.random.uniform((self.dim, self.dim), 0.1, 1, dtype=tf.float64)
                 )
 
-                tmp = tf.Variable(make_symmetric(arr,mask=mask))
+                tmp = tf.Variable(make_symmetric(arr, mask=mask))
 
             self.precision_matrix = tmp
         else:
@@ -199,9 +202,11 @@ class Params:
 
     def generate_samples(self, num, slide_samples=False):
         if slide_samples:
-            eps = np.random.multivariate_normal(np.zeros(self.dim), np.eye(self.dim), size=num)
+            eps = np.random.multivariate_normal(
+                np.zeros(self.dim), np.eye(self.dim), size=num
+            )
             A = scipy.linalg.sqrtm(self.covariance_matrix)
-            prod = np.einsum('ij,kj->ki', A, eps)
+            prod = np.einsum("ij,kj->ki", A, eps)
 
             return prod + self.mu
         else:
@@ -211,6 +216,7 @@ class Params:
                 size=num,
                 check_valid="ignore",
             ).astype(np.float32)
+
     @property
     def covariance_matrix(self):
         return tf.linalg.inv(self.precision_matrix)
@@ -231,6 +237,7 @@ def make_symmetric(input, sym_type="upper", mask=None):
 
     return sym
 
+
 @tf.function
 def train_step(data):
     with tf.GradientTape(persistent=True) as tape:
@@ -243,7 +250,8 @@ def train_step(data):
     optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
     return loss, grads
 
-#@tf.function
+
+# @tf.function
 def train_step_nce(
     real_data,
     noise_data,
@@ -260,9 +268,10 @@ def train_step_nce(
             nu,
         )
 
-    grads = make_symmetric(tape.gradient(loss, model.precision_matrix),mask=model.mask)
+    grads = make_symmetric(tape.gradient(loss, model.precision_matrix), mask=model.mask)
     optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
     return loss, grads
+
 
 learning_rate = 0.001
 eta = 0.75  # Probability that sample is real and not noise
@@ -293,7 +302,7 @@ train_images = np.reshape(train_images, (shape[0], shape[1] * shape[2]))
 pixel_wise_mean = np.mean(train_images, axis=0)
 
 train_images = train_images - pixel_wise_mean
-train_images = tf.Variable(np.array(train_images),dtype=tf.float64)
+train_images = tf.Variable(np.array(train_images), dtype=tf.float64)
 
 train_dataset = tf.data.Dataset.from_tensor_slices(train_images)
 train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size=batch_size)
@@ -331,7 +340,7 @@ epoch = 0
 last_precision_matrix = model.precision_matrix
 current_precision_matrix = model.precision_matrix
 nan_precision = False
-#for epoch in range(epochs):
+# for epoch in range(epochs):
 while True:
     print("Start of epoch ", epoch + 1, "\n")
     bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
@@ -397,13 +406,21 @@ while True:
         np.save(loss_name, loss_epoch)
 
     if epoch >= 1:
-        loss_diff.append(loss[-1] - loss[-2])  # If loss is reducing then loss[-1]<loss[-2] --> loss[-1]-loss[-2]<0
+        loss_diff.append(
+            loss[-1] - loss[-2]
+        )  # If loss is reducing then loss[-1]<loss[-2] --> loss[-1]-loss[-2]<0
         if loss_diff[-1] > 0:
             learning_rate = learning_rate * decay_factor
             optimizer.lr.assign(learning_rate)
             print(optimizer.get_config()["learning_rate"])
     if epoch >= 3:
-        print("Mean of last three loss diffs (", loss_diff[-3:], ") is: ", np.mean(loss_diff[-3:]), "\n")
+        print(
+            "Mean of last three loss diffs (",
+            loss_diff[-3:],
+            ") is: ",
+            np.mean(loss_diff[-3:]),
+            "\n",
+        )
         if np.mean(loss_diff[-3:]) > 0:
             break
     if nan_precision:
@@ -411,23 +428,23 @@ while True:
 
     epoch += 1
 
-'''if epochs == 1:
+"""if epochs == 1:
     plt.plot(loss_epoch)
 else:
     plt.plot(loss)
-plt.show()'''
+plt.show()"""
 
 precision_matrix_after = model.precision_matrix.numpy()
 covariance_matrix_after = model.covariance_matrix.numpy()
 
-'''plt.imshow(precision_matrix_after)
+"""plt.imshow(precision_matrix_after)
 plt.show()
 
 plt.imshow(precision_matrix_after-precision_matrix_before)
 plt.show()
 
 plt.imshow(covariance_matrix_after)
-plt.show()'''
+plt.show()"""
 
 np.save("gradients.npy", grads)
 np.save("precision_matrix_before.npy", precision_matrix_before)
@@ -437,23 +454,23 @@ params_after_training = Params(
     (shape[1], shape[2]),
     mask,
     loc=pixel_wise_mean.flatten(),
-    #loc=model.loc.numpy(),
-    precision_matrix=model.precision_matrix.numpy()
+    # loc=model.loc.numpy(),
+    precision_matrix=model.precision_matrix.numpy(),
 )
 slide_samples = np.real(params_after_training.generate_samples(3, slide_samples=True))
 slide_samples = np.reshape(slide_samples, (3, shape[1], shape[2]))
 
-np.save("generated_samples_NCE_"+str(NCE)+"_slide_method.npy", slide_samples)
+np.save("generated_samples_NCE_" + str(NCE) + "_slide_method.npy", slide_samples)
 
-'''for img in slide_samples:
+"""for img in slide_samples:
     plt.imshow(img)
-    plt.show()'''
+    plt.show()"""
 
 samples = np.real(params_after_training.generate_samples(3, slide_samples=False))
 samples = np.reshape(samples, (3, shape[1], shape[2]))
 
-np.save("generated_samples_NCE_"+str(NCE)+"_gaussian_method.npy", slide_samples)
+np.save("generated_samples_NCE_" + str(NCE) + "_gaussian_method.npy", slide_samples)
 
-'''for img in samples:
+"""for img in samples:
     plt.imshow(img)
-    plt.show()'''
+    plt.show()"""
