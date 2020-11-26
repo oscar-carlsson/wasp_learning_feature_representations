@@ -35,14 +35,14 @@ class DEWModel(tf.keras.layers.Layer):
         """
 
     def __call__(self, x):
-        y = self.exponent_marginal(x)
-        return tf.exp(y)  # Should we return log p_theta(x) or p_theta(x)?
+        y = self.exponent_marginal_dist(x)
+        return tf.exp(y)
 
     def build(self):
         self.built = True
 
     # log p_theta(x,z) = f_theta(x,y)
-    def exponent_joint(self, x, z):
+    def exponent_joint_dist(self, x, z):
         g = self.dense_layer_1(x)  # Compute g_theta(x)
         u = self.dense_layer_2(g)  # Compute W g_theta(x) + c
         y = tf.tensordot(u, z, axis=1)  # Compute z^T (W g_theta(x) + c)
@@ -52,7 +52,7 @@ class DEWModel(tf.keras.layers.Layer):
         return y
 
     # log p_theta(x)
-    def exponent_marginal(self, x):
+    def exponent_marginal_dist(self, x):
         g = self.dense_layer_1(x)  # Compute g_theta(x) = s(Vx)
         u = self.dense_layer_2(g)  # Compute w^T g_theta(x) + c
 
