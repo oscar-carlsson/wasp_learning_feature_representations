@@ -28,11 +28,18 @@ class DEWModel(tf.keras.layers.Layer):
 
         # Since we have expressions for both f_theta(x,z) and log p_theta(x),
         # we probably need to extract the weight matrices and biases at some point.
-        """
-        V = self.dense_layer_1.get_weights()
-        W = self.dense_layer_2.get_weights()
-        c = self.dense_layer_2.get_bias()  # <-- Not 100% sure this is correct.
-        """
+
+    @property
+    def V(self):
+        return self.dense_layer_1.get_weights()
+
+    @property
+    def W(self):
+        return self.dense_layer_2.get_weights()
+
+    @property
+    def c(self):
+        return self.dense_layer_2.get_bias()  # <-- Not 100% sure this is correct.
 
     def __call__(self, x):
         y = self.exponent_marginal_dist(x)
