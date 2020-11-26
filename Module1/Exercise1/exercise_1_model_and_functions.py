@@ -1,12 +1,7 @@
 import numpy as np
 import tensorflow as tf
-import tensorflow.keras.optimizers as optimizers
 import tensorflow_probability as tfp
-import matplotlib.pyplot as plt
-import progressbar
 from generate_mask import adjacency_mask
-import functools
-import time
 import scipy.linalg
 
 
@@ -87,23 +82,25 @@ class GaussianModel(tf.keras.layers.Layer):
     def NCE_real_data_terms(
         self, real_data, det_noise_precision_matrix, noise_precision_matrix
     ):
-        real_weights = model.data_point_weights(
+        real_weights = self.data_point_weights(
             real_data, det_noise_precision_matrix, noise_precision_matrix
         )
-        N = tf.shape(real_data).numpy()[0]
+        N = tf.shape(real_data,out_type=tf.float64)[0]
         term_3 = -1 / N * tf.reduce_sum(tf.math.log(real_weights + 1))
         return term_3
 
     def NCE_noise_data_terms(
         self, noise_data, nu, det_noise_precision_matrix, noise_precision_matrix
     ):
-        M = tf.shape(noise_data).numpy()[0]
+        M = tf.shape(noise_data,out_type=tf.float64)[0]
         noise_weights = self.data_point_weights(
             noise_data, det_noise_precision_matrix, noise_precision_matrix
         )
+
+        tmp_cnst = nu / M
+
         term_1 = (
-            nu
-            / M
+            tmp_cnst
             * (
                 tf.einsum(
                     "ki,ki",
@@ -134,7 +131,7 @@ class GaussianModel(tf.keras.layers.Layer):
         return term_2
 
     def NCE_zero(self):
-        return 0
+        return tf.constant(0,dtype=tf.float64)
 
     def NCE(
         self,
@@ -146,14 +143,14 @@ class GaussianModel(tf.keras.layers.Layer):
     ):
         loss = 0
         loss = loss + tf.cond(
-            tf.shape(real_data).numpy()[0] != 0,
+            tf.shape(real_data)[0] != 0,
             lambda: self.NCE_real_data_terms(
                 real_data, det_noise_precision_matrix, noise_precision_matrix
             ),
             lambda: self.NCE_zero(),
         )
         loss = loss + tf.cond(
-            tf.shape(noise_data).numpy()[0] != 0,
+            tf.shape(noise_data)[0] != 0,
             lambda: self.NCE_noise_data_terms(
                 noise_data, nu, det_noise_precision_matrix, noise_precision_matrix
             ),
