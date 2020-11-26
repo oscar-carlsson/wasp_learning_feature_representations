@@ -34,6 +34,7 @@ class toy_model:
 shape = (10, 10)
 dim = np.prod(shape)
 mask = adjacency_mask(shape=shape, mask_type="orthogonal")
+check_inv(mask)
 mat = tf.Variable(np.random.random((dim, dim)) * mask)
 noise_mat = tf.Variable(np.random.random((dim, dim)) * mask)
 noise_mat_det = tf.linalg.det(noise_mat)

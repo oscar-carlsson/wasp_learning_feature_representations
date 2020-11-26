@@ -8,7 +8,7 @@ import progressbar
 from generate_mask import adjacency_mask
 import functools
 import time
-import scipy
+import scipy.linalg
 
 class GaussianModel(tf.keras.layers.Layer):
     def __init__(self, shape, mask=None, mask_type="orthogonal", params=None):
@@ -23,28 +23,9 @@ class GaussianModel(tf.keras.layers.Layer):
             par = params
 
         self.loc = par.mu
-        upper_diag = tf.linalg.band_part(par.precision_matrix, 0, -1)
-        # diag  = tf.linalg.band_part(par.precision_matrix,0,0)
-        # self.A = upper_diag
         self.precision_matrix = par.precision_matrix
 
-        dim = np.prod(shape)
-
-        """self.A = tf.Variable(
-            tf.math.abs(tf.random.uniform((dim, dim), 0.1, 1, dtype=tf.float64)),
-            name="A",
-        )"""
-
-        self.dim = dim
-
-        prec_inv = tf.linalg.inv(self.precision_matrix)
-        cov_det = tf.linalg.det(
-            prec_inv
-        )  # Apparently -inf. Det(precision)=0 according to tensorflow
-        '''self.z = tf.Variable(1, dtype=tf.float64, name="Z")
-        """(2 * np.pi) ** (0.5 * dim) * tf.abs(
-            cov_det
-        ) ** 0.5"""'''
+        self.dim = np.prod(shape)
 
     def __call__(self, data):
         y_halfway = tf.einsum("ij,kj->ki", self.precision_matrix, data)
@@ -79,16 +60,9 @@ class GaussianModel(tf.keras.layers.Layer):
             tf.linalg.det(self.covariance_matrix)
         ) ** 0.5
 
-    def grad_log_model_old(self, data):
-        grad_x = -tf.einsum("ij,sj->si", self.cov, (data - self.loc))
-        return grad_x
-
     def grad_log_model(self, data):
         grad_x = -tf.einsum("ij,sj->si", self.precision_matrix, (data - self.loc))
         return grad_x
-
-    def laplace_log_model_old(self, data):
-        return -tf.einsum("ii", self.cov)
 
     def laplace_log_model(self, data):
         return -tf.einsum("ii", self.precision_matrix)
@@ -106,9 +80,6 @@ class GaussianModel(tf.keras.layers.Layer):
 
         loss = 1 / N * loss
         return loss
-
-    def test_loss(self):
-        return tf.reduce_sum(self.precision_matrix) + tf.reduce_sum(self.loc)
 
     def data_point_weights(
         self, data, det_noise_precision_matrix, noise_precision_matrix
@@ -207,23 +178,6 @@ class GaussianModel(tf.keras.layers.Layer):
 
         return loss
 
-
-def make_symmetric(input, sym_type="upper", mask=None):
-    if sym_type == "upper":
-        part = tf.linalg.band_part(input, 0, -1)
-    elif sym_type == "lower":
-        part = tf.linalg.band_part(input, -1, 0)
-    else:
-        raise ValueError
-
-    sym = part + tf.linalg.matrix_transpose(part) - tf.linalg.band_part(part, 0, 0)
-
-    if mask is not None:
-        sym = sym * mask
-
-    return sym
-
-
 class Params:
     def __init__(self, shape, mask, loc=None, precision_matrix=None, only_ones=False):
         # Temporary values for testing:
@@ -299,31 +253,33 @@ class Params:
     def covariance_matrix(self):
         return tf.linalg.inv(self.precision_matrix)
 
+def make_symmetric(input, sym_type="upper", mask=None):
+    if sym_type == "upper":
+        part = tf.linalg.band_part(input, 0, -1)
+    elif sym_type == "lower":
+        part = tf.linalg.band_part(input, -1, 0)
+    else:
+        raise ValueError
+
+    sym = part + tf.linalg.matrix_transpose(part) - tf.linalg.band_part(part, 0, 0)
+
+    if mask is not None:
+        sym = sym * mask
+
+    return sym
+
+
+
+
 #@tf.function
 def train_step(data):
     with tf.GradientTape(persistent=True) as tape:
-        try:
-            loss = loss_fcn(
-                data,
-            )
+        loss = loss_fcn(
+            data,
+        )
 
-
-        except:
-            np.save("precision_matrix_before_crash.npy", model.precision_matrix.numpy())
-            raise  # AssertionError("Some matrix is not invertible.")
-
-    """grads_diag = tf.linalg.band_part(grads, 0, 0)
-    grads_upper = tf.linalg.band_part(grads, 0, -1) - grads_diag
-    grads_lower = tf.linalg.matrix_transpose(grads_upper)
-    grads = grads_diag + grads_upper + grads_lower
-
-    optimizer.apply_gradients(zip([grads], [model.precision_matrix]))"""
     grads = make_symmetric(tape.gradient(loss, model.precision_matrix), mask=model.mask)
-    if not np.any(tf.math.is_nan(grads)):
-        """plt.imshow(grads.numpy() / tf.reduce_max(tf.math.abs(grads)))
-        plt.show()"""
-        optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
-        nan = False
+    optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
     return loss, grads
 
 #@tf.function
@@ -334,38 +290,18 @@ def train_step_nce(
     noise_precision_matrix,
     nu,
 ):
-    with tf.GradientTape(persistent=True) as tape:
-        """noise_weights = model.data_point_weights(
-            noise_data, det_noise_precision_matrix, noise_precision_matrix
-        )"""
-        try:
-            loss = loss_fcn_NCE(
-                real_data,
-                noise_data,
-                det_noise_precision_matrix,
-                noise_precision_matrix,
-                nu,
-            )
+    with tf.GradientTape() as tape:
+        loss = loss_fcn_NCE(
+            real_data,
+            noise_data,
+            det_noise_precision_matrix,
+            noise_precision_matrix,
+            nu,
+        )
 
-            # grads = tape.gradient(loss, model.precision_matrix) * model.mask
-        except:
-            """np.save(
-                "current_precision_matrix_before_crash.npy",
-                model.precision_matrix.numpy(),
-            )
-            np.save(
-                "previous_precision_matrix_before_crash.npy",
-                last_precision_matrix.numpy(),
-            )"""
-            raise  # AssertionError("Some matrix is not invertible.")
     grads = make_symmetric(tape.gradient(loss, model.precision_matrix), mask=model.mask)
-    nan = True
-    if not np.any(tf.math.is_nan(grads)):
-        """plt.imshow(grads.numpy() / tf.reduce_max(tf.math.abs(grads)))
-        plt.show()"""
-        optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
-        nan = False
-    return loss, grads  # , nan
+    optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
+    return loss, grads
 
 
 learning_rate = 0.001
@@ -415,28 +351,6 @@ noise_precision_matrix = noise_params.precision_matrix
 loss_fcn = model.model_loss
 loss_fcn_NCE = model.NCE
 optimizer = optimizers.RMSprop(learning_rate=learning_rate)
-
-
-'''train_image_batch = train_dataset.as_numpy_iterator().next()
-noise_image_batch = tf.convert_to_tensor([])
-
-while True:
-    step_loss, grads, nan = train_step_nce(
-        train_image_batch,
-        noise_image_batch,
-        det_noise_precision_matrix,
-        noise_precision_matrix,
-        nu,
-    )
-
-    """grads = tape.gradient(step_loss, model.A)"""
-    print(grads)
-    plt.imshow(model.precision_matrix.numpy())
-    plt.show()
-    #optimizer.apply_gradients(zip([grads], [model.A]))
-
-    if not nan:
-        break'''
 
 widgets = [
     " [",
@@ -534,9 +448,6 @@ for epoch in range(epochs):
             break
     if nan_precision:
         break
-
-
-
 
     epoch += 1
 
