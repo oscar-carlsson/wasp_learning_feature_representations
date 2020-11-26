@@ -53,7 +53,7 @@ class DEM(tf.keras.layers.Layer):
         g = self.dense_layer_1(x)  # Compute g_theta(x)
         u = self.dense_layer_2(g)  # Compute W g_theta(x) + c
         y = tf.tensordot(u, z, axis=1)  # Compute z^T (W g_theta(x) + c)
-        y += tf.tensordot(b, x, axis=1)  # Add b^T x
+        y += tf.tensordot(self.b, x, axis=1)  # Add b^T x
         y -= tf.tensordot(x, x, axis=1) / (2 * self.sigma ** 2)  # Subtract ||x||² / 2sigma²
 
         return y
@@ -64,8 +64,8 @@ class DEM(tf.keras.layers.Layer):
         u = self.dense_layer_2(g)  # Compute w^T g_theta(x) + c
 
         y = self.S(u)  # Compute S(w^T g_theta(x) + c)
-        y = tf.tensordot(y, tf.ones((1, dim), dtype=tf.float32), axis=1)  # sum_k S(w_k^T x + c_k)
-        y += tf.tensordot(b, x, axis=1)  # Add b^T x
+        y = tf.reduce_sum(y)#tf.tensordot(y, tf.ones((1, dim), dtype=tf.float32), axis=1)  # sum_k S(w_k^T x + c_k)
+        y += tf.tensordot(self.b, x, axis=1)  # Add b^T x
         y -= tf.tensordot(x, x, axis=1) / (2 * self.sigma ** 2)  # Subtract ||x||² / 2sigma²
         return y
 
@@ -77,9 +77,9 @@ class DEM(tf.keras.layers.Layer):
     """
     def S(self, u):
         if u <= 0:
-            return tf.log(1 + tf.exp(u))
+            return tf.math.log(1 + tf.exp(u))
         else:
-            return u + tf.log(1 + tf.exp(u))
+            return u + tf.math.log(1 + tf.exp(u))
 
     def s(self, u):
         if u <= 0:
