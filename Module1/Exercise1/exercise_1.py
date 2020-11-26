@@ -26,6 +26,26 @@ def train_step(data):
 
 
 @tf.function
+def train_step_nce_tf_function(
+    real_data,
+    noise_data,
+    det_noise_precision_matrix,
+    noise_precision_matrix,
+    nu,
+):
+    with tf.GradientTape() as tape:
+        loss = loss_fcn_NCE_tf_function(
+            real_data,
+            noise_data,
+            det_noise_precision_matrix,
+            noise_precision_matrix,
+            nu,
+        )
+
+    grads = make_symmetric(tape.gradient(loss, model.precision_matrix), mask=model.mask)
+    optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
+    return loss, grads
+
 def train_step_nce(
     real_data,
     noise_data,
@@ -43,10 +63,8 @@ def train_step_nce(
         )
 
     grads = make_symmetric(tape.gradient(loss, model.precision_matrix), mask=model.mask)
-    if not tf.math.is_nan(grads).any():
-        optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
+    optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
     return loss, grads
-
 
 learning_rate = 0.001
 eta = 0.75  # Probability that sample is real and not noise
@@ -55,6 +73,7 @@ batch_size = 10
 mask_type = "orthogonal"
 epochs = 3
 NCE = True
+tf_function = False
 saving = True
 decay_factor = 1
 
@@ -92,6 +111,7 @@ det_noise_precision_matrix = tf.linalg.det(noise_params.precision_matrix)
 noise_precision_matrix = noise_params.precision_matrix
 
 loss_fcn = model.model_loss
+loss_fcn_NCE_tf_function = model.NCE_tf_function
 loss_fcn_NCE = model.NCE
 optimizer = optimizers.RMSprop(learning_rate=learning_rate)
 
@@ -115,6 +135,7 @@ epoch = 0
 last_precision_matrix = model.precision_matrix
 current_precision_matrix = model.precision_matrix
 nan_precision = False
+nan_loss = False
 # for epoch in range(epochs):
 while True:
     print("Start of epoch ", epoch + 1, "\n")
@@ -136,16 +157,27 @@ while True:
             train_image_batch = tf.convert_to_tensor(tmp_real, dtype=tf.float64)
             noise_image_batch = tf.convert_to_tensor(tmp_noise, dtype=tf.float64)
             worked = True
+            step_loss=0
             try:
-                step_loss, step_grads = train_step_nce(
-                    train_image_batch,
-                    noise_image_batch,
-                    det_noise_precision_matrix,
-                    noise_precision_matrix,
-                    nu,
-                )
+                if tf_function:
+                    step_loss, step_grads = train_step_nce_tf_function(
+                        train_image_batch,
+                        noise_image_batch,
+                        det_noise_precision_matrix,
+                        noise_precision_matrix,
+                        nu,
+                    )
+                else:
+                    step_loss, step_grads = train_step_nce(
+                        train_image_batch,
+                        noise_image_batch,
+                        det_noise_precision_matrix,
+                        noise_precision_matrix,
+                        nu,
+                    )
+                #print("Step ", step, ", step loss: ", step_loss)
             except:
-                #traceback.print_exc()
+                traceback.print_exc()
                 #print("train_image_batch shape: ", tf.shape(train_image_batch))
                 #print("noise_image_batch shape: ", tf.shape(noise_image_batch))
                 worked = False
@@ -159,6 +191,10 @@ while True:
 
         if np.any(np.isnan(model.precision_matrix.numpy())):
             nan_precision = True
+            break
+
+        if np.isnan((step_loss)):
+            nan_loss = True
             break
 
         if (step % 100 == 0) and worked:
@@ -205,8 +241,13 @@ while True:
         )
         if np.mean(loss_diff[-3:]) > 0:
             break
+
     if nan_precision:
         print("NaN precision!!")
+        break
+
+    if nan_loss:
+        print("NaN loss!!")
         break
 
     epoch += 1
