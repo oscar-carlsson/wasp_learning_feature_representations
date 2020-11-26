@@ -14,9 +14,9 @@ from generate_mask import adjacency_mask
  and w_k for rows in W. But let's use consistent notation.)
 """
 
-class DEWModel(tf.keras.layers.Layer):
+class DEM(tf.keras.layers.Layer):
     def __init__(self, shape, mask_type="orthogonal"):
-        super(DEMModel, self).__init__()
+        super(DEM, self).__init__()
         par = Params(shape)
         # Dense layers replace the parameters V, W, c
         self.b = par.b  # Bias vector
