@@ -6,6 +6,7 @@ import tensorflow_probability as tfp
 import matplotlib.pyplot as plt
 import progressbar
 from generate_mask import adjacency_mask
+import scipy.linalg
 
 """
  IMPORTANT: Just like the presentation, I have been sloppy
@@ -64,7 +65,7 @@ class DEM(tf.keras.layers.Layer):
         u = self.dense_layer_2(g)  # Compute w^T g_theta(x) + c
 
         y = self.S(u)  # Compute S(w^T g_theta(x) + c)
-        y = tf.reduce_sum(y)#tf.tensordot(y, tf.ones((1, dim), dtype=tf.float32), axis=1)  # sum_k S(w_k^T x + c_k)
+        y = tf.reduce_sum(y)  # tf.tensordot(y, tf.ones((1, dim), dtype=tf.float32), axis=1)  # sum_k S(w_k^T x + c_k)
         y += tf.tensordot(self.b, x, axis=1)  # Add b^T x
         y -= tf.tensordot(x, x, axis=1) / (2 * self.sigma ** 2)  # Subtract ||x||² / 2sigma²
         return y
@@ -144,6 +145,13 @@ class Params:
 
         self.sigma = 1  # 0.1 # Hyperparameter
 
+def whiten(data):
+    data = data - np.sum(data,axis=0)/len(data)
+    c = 1/(len(data)-1)*np.transpose(data)@data
+    eig_val,U = np.linalg.eig(c)
+    Lambda = np.diag(eig_val)
+    data_transpose = np.transpose(U)@scipy.linalg.sqrtm(np.linalg.inv(Lambda))@np.transpose(U)@np.transpose(data)
+    return np.transpose(data_transpose)
 
 """
 Everything below here is untouched from Exercise 1.
