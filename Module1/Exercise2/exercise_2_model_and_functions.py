@@ -3,6 +3,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import scipy.linalg
 from tensorflow.keras.activations import sigmoid
+import matplotlib.pyplot as plt
 
 """
  IMPORTANT: Just like the presentation, I have been sloppy
@@ -175,10 +176,16 @@ class Params:
 
         self.K1 = 64
         self.K2 = 64
-        self.V = tf.Variable(tf.random.normal(shape=(self.K1, dim)),trainable=True,name="V")
-        self.W = tf.Variable(tf.random.normal(shape=(self.K2, self.K1)),trainable=True,name="W")
+        self.V = tf.Variable(
+            tf.random.normal(shape=(self.K1, dim)), trainable=True, name="V"
+        )
+        self.W = tf.Variable(
+            tf.random.normal(shape=(self.K2, self.K1)), trainable=True, name="W"
+        )
 
-        self.c = tf.Variable(tf.random.normal(shape=(1, self.K2)),trainable=True,name="c")
+        self.c = tf.Variable(
+            tf.random.normal(shape=(1, self.K2)), trainable=True, name="c"
+        )
 
         vec = tf.random.normal(shape=(1, dim))
         self.b = tf.Variable(
@@ -203,3 +210,57 @@ def whiten(data):
         @ np.transpose(data)
     )
     return np.transpose(data_transpose)
+
+
+def visualize_filters(V, margins=2, title=None, background_val=0):
+    if len(np.shape(V)) == 2:
+        num_filters = np.shape(V)[0]
+        dim = np.shape(V)[1]
+    elif len(np.shape(V)) == 1:
+        num_filters = 1
+        dim = len(V)
+    else:
+        raise ValueError("Only allow up to 2D filters.")
+
+    if np.sqrt(dim).is_integer():
+        filter_shape = (int(np.sqrt(dim)), int(np.sqrt(dim)))
+    else:
+        raise NotImplementedError("Not implemented for non-square images.")
+
+    if num_filters != 1:
+        filters = np.array([np.reshape(row, filter_shape) for row in V])
+    else:
+        filters = np.array([np.reshape(V, filter_shape)])
+
+    if np.sqrt(num_filters).is_integer():
+        num_rows = num_cols = int(np.sqrt(num_filters))
+    else:
+        raise NotImplementedError("Only implemented for n^2 number of filters.")
+
+    canvas = np.full(
+        (
+            (num_rows + 1) * margins + num_rows * filter_shape[0],
+            (num_cols + 1) * margins + num_cols * filter_shape[1],
+        ),
+        fill_value=background_val,
+        dtype=np.single,
+    )
+
+    for ii in range(num_rows):
+        for jj in range(num_cols):
+            canvas[
+                ii * filter_shape[0]
+                + (ii + 1) * margins : (ii + 1) * filter_shape[0]
+                + (ii + 1) * margins,
+                jj * filter_shape[1]
+                + (jj + 1) * margins : (jj + 1) * filter_shape[1]
+                + (jj + 1) * margins,
+            ] = filters[ii * num_cols + jj]
+
+    plt.figure()
+    plt.imshow(canvas)
+    if isinstance(title, str):
+        plt.title()
+    plt.show()
+
+    return canvas
