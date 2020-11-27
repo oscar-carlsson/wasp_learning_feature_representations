@@ -73,9 +73,10 @@ learning_rate = 0.001
 eta = 0.75  # Probability that sample is real and not noise
 nu = 1 / eta - 1
 batch_size = 10
-mask_type = "orthogonal"
+mask_type = "eight_neighbours"
 epochs = 3
-NCE = True
+max_epoch=100
+NCE = False
 tf_function = False
 saving = True
 decay_factor = 1
@@ -129,6 +130,10 @@ widgets = [
 ]
 
 precision_matrix_before = model.precision_matrix.numpy()
+
+plt.imshow(precision_matrix_before)
+plt.show()
+
 loss_epochs = []
 loss = []
 loss_diff = []
@@ -186,7 +191,11 @@ while True:
                 worked = False
                 pass
         else:
-            step_loss, step_grads = train_step(train_image_batch)
+            worked=True
+            try:
+                step_loss, step_grads = train_step(train_image_batch)
+            except:
+                worked=False
 
         if step > 1:
             last_precision_matrix = current_precision_matrix
@@ -213,16 +222,12 @@ while True:
     if saving:
 
         prec_name = (
-            "precision_matrix_NCE_" + str(NCE) + "_epoch_" + str(epoch + 1) + ".npy"
+            "precision_matrix_NCE_" + str(NCE) + "_mask_" + mask_type + "_epoch_" + str(epoch + 1) + ".npy"
         )
         np.save(prec_name, model.precision_matrix.numpy())
 
         loss_name = (
-            "loss_for_each_step_NCE_"
-            + str(NCE)
-            + "_during_epoch_"
-            + str(epoch + 1)
-            + ".npy"
+            "loss_for_each_step_NCE_" + str(NCE) + "_mask_" + mask_type + "_epoch_" + str(epoch + 1) + ".npy"
         )
         np.save(loss_name, loss_epoch)
 
@@ -253,6 +258,9 @@ while True:
         print("NaN loss!!")
         break
 
+    if epoch >= max_epoch:
+        break
+
     epoch += 1
 
 """if epochs == 1:
@@ -274,8 +282,8 @@ plt.imshow(covariance_matrix_after)
 plt.show()"""
 
 np.save("gradients.npy", grads)
-np.save("precision_matrix_before.npy", precision_matrix_before)
-np.save("precision_matrix_after.npy", precision_matrix_after)
+np.save("precision_matrix_before_mask_"+mask_type+".npy", precision_matrix_before)
+np.save("precision_matrix_after_mask_"+mask_type+".npy", precision_matrix_after)
 
 params_after_training = Params(
     (shape[1], shape[2]),
@@ -287,7 +295,7 @@ params_after_training = Params(
 slide_samples = np.real(params_after_training.generate_samples(3, slide_samples=True))
 slide_samples = np.reshape(slide_samples, (3, shape[1], shape[2]))
 
-np.save("generated_samples_NCE_" + str(NCE) + "_slide_method.npy", slide_samples)
+np.save("generated_samples_NCE_" + str(NCE) + "_mask_"+mask_type+"_slide_method.npy", slide_samples)
 
 """for img in slide_samples:
     plt.imshow(img)
@@ -296,7 +304,7 @@ np.save("generated_samples_NCE_" + str(NCE) + "_slide_method.npy", slide_samples
 samples = np.real(params_after_training.generate_samples(3, slide_samples=False))
 samples = np.reshape(samples, (3, shape[1], shape[2]))
 
-np.save("generated_samples_NCE_" + str(NCE) + "_gaussian_method.npy", slide_samples)
+np.save("generated_samples_NCE_" + str(NCE) + "_mask_"+mask_type+"_gaussian_method.npy", slide_samples)
 
 """for img in samples:
     plt.imshow(img)
