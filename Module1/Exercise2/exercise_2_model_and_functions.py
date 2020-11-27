@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
 import scipy.linalg
+from tensorflow.keras.activations import sigmoid
 
 """
  IMPORTANT: Just like the presentation, I have been sloppy
@@ -9,6 +10,7 @@ import scipy.linalg
  the same matrix. (Presentation maybe uses W for the matrix
  and w_k for rows in W. But let's use consistent notation.)
 """
+
 
 class DEM(tf.keras.layers.Layer):
     def __init__(self, shape, mask_type="orthogonal"):
@@ -19,13 +21,16 @@ class DEM(tf.keras.layers.Layer):
         self.K1 = par.K1  # Channels in dense layer 1
         self.K2 = par.K2  # Channels in dense layer 2
         self.sigma = par.sigma  # sigma in {1, 0.1}
-        self.dense_layer_1 = tf.keras.layers.Dense(self.K1, activation='sigmoid', use_bias=False)  # s(Vx)
-        self.dense_layer_2 = tf.keras.layers.Dense(self.K2, activation='none', use_bias=True)  # w^T x + c
+        self.c = par.c
+        self.V = par.V
+        self.W = par.W
+        # self.dense_layer_1 = tf.keras.layers.Dense(self.K1, activation='sigmoid', use_bias=False)  # s(Vx)
+        # self.dense_layer_2 = tf.keras.layers.Dense(self.K2, activation=None, use_bias=True)  # w^T x + c
 
         # Since we have expressions for both f_theta(x,z) and log p_theta(x),
         # we probably need to extract the weight matrices and biases at some point.
 
-    @property
+    """@property
     def V(self):
         return self.dense_layer_1.get_weights()
 
@@ -35,7 +40,7 @@ class DEM(tf.keras.layers.Layer):
 
     @property
     def c(self):
-        return self.dense_layer_2.get_bias()  # <-- Not 100% sure this is correct.
+        return self.dense_layer_2.get_bias()  # <-- Not 100% sure this is correct."""
 
     def __call__(self, x):
         y = self.exponent_marginal_dist(x)
@@ -44,13 +49,25 @@ class DEM(tf.keras.layers.Layer):
     def build(self):
         self.built = True
 
+    @property
+    def trainable_variables(self):
+        return [self.b, self.c, self.V, self.W]
+
+    def dense_layer_1(self, data):
+        return sigmoid(tf.einsum("ij,kj->ki", self.V, data))
+
+    def dense_layer_2(self, data):
+        return tf.einsum("ij,kj->ki", self.W, data) + self.c
+
     # log p_theta(x,z) = f_theta(x,y)
     def exponent_joint_dist(self, x, z):
         g = self.dense_layer_1(x)  # Compute g_theta(x)
         u = self.dense_layer_2(g)  # Compute W g_theta(x) + c
         y = tf.tensordot(u, z, axis=1)  # Compute z^T (W g_theta(x) + c)
         y += tf.tensordot(self.b, x, axis=1)  # Add b^T x
-        y -= tf.tensordot(x, x, axis=1) / (2 * self.sigma ** 2)  # Subtract ||x||² / 2sigma²
+        y -= tf.tensordot(x, x, axis=1) / (
+            2 * self.sigma ** 2
+        )  # Subtract ||x||² / 2sigma²
 
         return y
 
@@ -59,10 +76,16 @@ class DEM(tf.keras.layers.Layer):
         g = self.dense_layer_1(x)  # Compute g_theta(x) = s(Vx)
         u = self.dense_layer_2(g)  # Compute w^T g_theta(x) + c
 
-        y = self.S(u)  # Compute S(w^T g_theta(x) + c)
-        y = tf.reduce_sum(y)  # tf.tensordot(y, tf.ones((1, dim), dtype=tf.float32), axis=1)  # sum_k S(w_k^T x + c_k)
-        y += tf.tensordot(self.b, x, axis=1)  # Add b^T x
-        y -= tf.tensordot(x, x, axis=1) / (2 * self.sigma ** 2)  # Subtract ||x||² / 2sigma²
+        y = tf.map_fn(self.S, u)  # Compute S(w^T g_theta(x) + c)
+        y = tf.reshape(
+            tf.reduce_sum(y, axis=1), (tf.shape(x)[0], 1)
+        )  # tf.tensordot(y, tf.ones((1, dim), dtype=tf.float32), axis=1)  # sum_k S(w_k^T x + c_k)
+        y += tf.einsum(
+            "ij,kj->ki", self.b, x
+        )  # tf.tensordot(self.b, x, axes=1)  # Add b^T x
+        y -= tf.reshape(tf.einsum("ki,ki->k", x, x), (tf.shape(x)[0], 1)) / (
+            2 * self.sigma ** 2
+        )  # Subtract ||x||² / 2sigma², tf.tensordot(x, x, axes=1)
         return y
 
     """
@@ -71,17 +94,35 @@ class DEM(tf.keras.layers.Layer):
     Might allow us to use activation=sigmoid in the second dense layer
     and never bother defining S and s in the first place.
     """
-    def S(self, u):
+    """def S(self, u):
         if u <= 0:
             return tf.math.log(1 + tf.exp(u))
         else:
-            return u + tf.math.log(1 + tf.exp(u))
+            return u + tf.math.log(1 + tf.exp(u))"""
+
+    def S(self, u):
+        return tf.map_fn(self.S_prim, u)
+
+    def S_prim(self, u):
+        return tf.cond(
+            u <= 0,
+            lambda: tf.math.log(1 + tf.exp(u)),
+            lambda: u + tf.math.log(1 + tf.exp(u)),
+        )
 
     def s(self, u):
+        return tf.map_fn(self.s_prim, u)
+
+    def s_prim(self, u):
+        return tf.cond(
+            u <= 0, lambda: tf.exp(u) / (1 + tf.exp(u)), lambda: 1 / (1 + tf.exp(-u))
+        )
+
+    """def s(self, u):
         if u <= 0:
             return tf.exp(u) / (1 + tf.exp(u))
         else:
-            return 1 / (1 + tf.exp(-u))
+            return 1 / (1 + tf.exp(-u))"""
 
     # Latent variable
     def z(self, logits):
@@ -96,6 +137,7 @@ class DEM(tf.keras.layers.Layer):
     grad_log_model, laplace_log_model and model_loss
     are untouched from Exercise 1. Haven't changed these yet.
     """
+
     @property
     def grad_log_model(self, data):
         grad_x = -tf.einsum("ij,sj->si", self.cov, (data - self.loc))
@@ -110,9 +152,9 @@ class DEM(tf.keras.layers.Layer):
         loss = 0
         for sample in range(N):
             loss = (
-                    loss
-                    + 1 / 2 * tf.linalg.norm(self.grad_log_model(data[sample])) ** 2
-                    + self.laplace_log_model(data[sample])
+                loss
+                + 1 / 2 * tf.linalg.norm(self.grad_log_model(data[sample])) ** 2
+                + self.laplace_log_model(data[sample])
             )
 
         loss = 1 / N * loss
@@ -120,7 +162,7 @@ class DEM(tf.keras.layers.Layer):
 
 
 class Params:
-    def __init__(self, shape, mask):
+    def __init__(self, shape):
         rows = shape[0]
         cols = shape[1]
         dim = rows * cols
@@ -131,19 +173,33 @@ class Params:
         Does tf understand that trainable parameters = { dense layer params + b}?
         """
 
-        vec = tf.random.normal(size=(1, dim))
+        self.K1 = 64
+        self.K2 = 64
+        self.V = tf.Variable(tf.random.normal(shape=(self.K1, dim)),trainable=True,name="V")
+        self.W = tf.Variable(tf.random.normal(shape=(self.K2, self.K1)),trainable=True,name="W")
+
+        self.c = tf.Variable(tf.random.normal(shape=(1, self.K2)),trainable=True,name="c")
+
+        vec = tf.random.normal(shape=(1, dim))
         self.b = tf.Variable(
             vec,
             dtype=tf.float32,
             trainable=True,
+            name="b",
         )
 
         self.sigma = 1  # 0.1 # Hyperparameter
 
+
 def whiten(data):
-    data = data - np.sum(data,axis=0)/len(data)
-    c = 1/(len(data)-1)*np.transpose(data)@data
-    eig_val,U = np.linalg.eig(c)
+    data = data - np.sum(data, axis=0) / len(data)
+    c = 1 / (len(data) - 1) * np.transpose(data) @ data
+    eig_val, U = np.linalg.eig(c)
     Lambda = np.diag(eig_val)
-    data_transpose = np.transpose(U)@scipy.linalg.sqrtm(np.linalg.inv(Lambda))@np.transpose(U)@np.transpose(data)
+    data_transpose = (
+        np.transpose(U)
+        @ scipy.linalg.sqrtm(np.linalg.inv(Lambda))
+        @ np.transpose(U)
+        @ np.transpose(data)
+    )
     return np.transpose(data_transpose)
