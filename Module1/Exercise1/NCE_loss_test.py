@@ -307,7 +307,7 @@ def train_step_nce(
 learning_rate = 0.001
 eta = 0.75  # Probability that sample is real and not noise
 nu = 1 / eta - 1
-batch_size = 1000
+batch_size = 10
 mask_type = "orthogonal"
 epochs = 1
 NCE = True
@@ -400,6 +400,10 @@ for epoch in range(epochs):
                 noise_precision_matrix,
                 nu,
             )
+
+            if tf.math.is_nan(step_grads).numpy().any():
+                print("Nan grads!!")
+
         else:
             step_loss, step_grads = train_step(train_image_batch)
         if step > 1:

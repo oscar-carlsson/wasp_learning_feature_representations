@@ -63,7 +63,10 @@ def train_step_nce(
         )
 
     grads = make_symmetric(tape.gradient(loss, model.precision_matrix), mask=model.mask)
-    optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
+    if not np.isnan(grads.numpy()).any():
+        optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
+    else:
+        print("Nan grads!!")
     return loss, grads
 
 learning_rate = 0.001
