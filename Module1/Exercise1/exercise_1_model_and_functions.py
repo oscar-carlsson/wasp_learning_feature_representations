@@ -80,7 +80,7 @@ class GaussianModel(tf.keras.layers.Layer):
         return weights
 
     def NCE_real_data_terms(
-        self, real_data, det_noise_precision_matrix, noise_precision_matrix, tf_function
+        self, real_data, nu, det_noise_precision_matrix, noise_precision_matrix, tf_function
     ):
         real_weights = self.data_point_weights(
             real_data, det_noise_precision_matrix, noise_precision_matrix
@@ -89,7 +89,8 @@ class GaussianModel(tf.keras.layers.Layer):
             N = tf.shape(real_data,out_type=tf.float64)[0]
         else:
             N = tf.shape(real_data)[0]
-        term_3 = -1 / N * tf.reduce_sum(tf.math.log(real_weights + 1))
+
+        term_3 = -1 / N * tf.reduce_sum(tf.math.log(nu * real_weights + 1))
         return term_3
 
     def NCE_noise_data_terms(
@@ -104,8 +105,9 @@ class GaussianModel(tf.keras.layers.Layer):
             noise_data, det_noise_precision_matrix, noise_precision_matrix
         )
 
-        tmp_cnst = nu / M
 
+
+        '''# Old stuff 
         term_1 = (
             tmp_cnst
             * (
@@ -121,7 +123,9 @@ class GaussianModel(tf.keras.layers.Layer):
             )
         )
         term_4 = -nu / M * tf.reduce_sum(tf.math.log(nu * noise_weights + 1))
-        return term_1 + term_4
+        return term_1 + term_4'''
+
+        return nu / M * tf.reduce_sum(tf.math.log(nu*noise_weights/(nu*noise_weights+1)))
 
     def NCE_precision_matrix_term(self, nu, det_noise_precision_matrix):
         term_2 = (
@@ -184,7 +188,7 @@ class GaussianModel(tf.keras.layers.Layer):
         loss = loss + tf.cond(
             tf.shape(real_data)[0] != 0,
             lambda: self.NCE_real_data_terms(
-                real_data, det_noise_precision_matrix, noise_precision_matrix, tf_function
+                real_data, nu, det_noise_precision_matrix, noise_precision_matrix, tf_function
             ),
             lambda: self.NCE_zero(tf_function),
         )
@@ -195,7 +199,7 @@ class GaussianModel(tf.keras.layers.Layer):
             ),
             lambda: self.NCE_zero(tf_function),
         )
-        loss = loss + self.NCE_precision_matrix_term(nu, det_noise_precision_matrix)
+        #loss = loss + self.NCE_precision_matrix_term(nu, det_noise_precision_matrix)
 
         return loss
 
