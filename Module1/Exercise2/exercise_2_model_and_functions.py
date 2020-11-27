@@ -55,7 +55,8 @@ class DEM(tf.keras.layers.Layer):
         return [self.b, self.c, self.V, self.W]
 
     def dense_layer_1(self, data):
-        return sigmoid(tf.einsum("ij,kj->ki", self.V, data))
+        # return sigmoid(tf.einsum("ij,kj->ki", self.V, data))
+        return tf.map_fn(self.s, tf.einsum("ij,kj->ki", self.V, data))
 
     def dense_layer_2(self, data):
         return tf.einsum("ij,kj->ki", self.W, data) + self.c
@@ -102,28 +103,65 @@ class DEM(tf.keras.layers.Layer):
             return u + tf.math.log(1 + tf.exp(u))"""
 
     def S(self, u):
-        return tf.map_fn(self.S_prim, u)
+        return tf.map_fn(self.S_aux, u)
 
-    def S_prim(self, u):
+    def S_aux(self, u):
         return tf.cond(
             u <= 0,
             lambda: tf.math.log(1 + tf.exp(u)),
             lambda: u + tf.math.log(1 + tf.exp(u)),
         )
 
-    def s(self, u):
-        return tf.map_fn(self.s_prim, u)
+    def S_prime(self, u):
+        return tf.map_fn(self.S_prime_aux, u)
 
-    def s_prim(self, u):
+    def S_prime_aux(self, u):
+        return tf.cond(
+            u <= 0,
+            lambda: tf.exp(u) / (1 + tf.exp(u)),
+            lambda: 1 - tf.exp(-u) / (1 + tf.exp(-u)),
+        )
+
+    def s(self, u):
+        return tf.map_fn(self.s_aux, u)
+
+    def s_aux(self, u):
         return tf.cond(
             u <= 0, lambda: tf.exp(u) / (1 + tf.exp(u)), lambda: 1 / (1 + tf.exp(-u))
         )
 
-    """def s(self, u):
-        if u <= 0:
-            return tf.exp(u) / (1 + tf.exp(u))
-        else:
-            return 1 / (1 + tf.exp(-u))"""
+    def s_prime(self, u):
+        return tf.map_fn(self.s_prime_aux, u)
+
+    def s_prime_aux(self, u):
+        return tf.cond(
+            u <= 0,
+            lambda: 1 / (1 + tf.exp(u)) ** 2,
+            lambda: -tf.exp(-u) / (1 + tf.exp(-u)) ** 2,
+        )
+
+    def grad_log_DEM(self, data):
+        """
+        If my calculations are correct the gradient of log(model) is:
+        -1/sigma^2 * x_i + b_i + sum_{n=1}^{K}S'(w^T_n * s(Vx) + c_n) * w^T_n * s'(Vx) * V_{ni}
+        I'm not sure about the last indices on V but I hope they're correct. The output shape seems to be fine.
+        :param data:
+        :return:
+        """
+        g = self.dense_layer_1(data)  # Compute g_theta(x) = s(Vx)
+        u = self.dense_layer_2(g)  # Compute w^T g_theta(x) + c
+
+        S_prime = tf.map_fn(self.S_prime, u)
+        w_tn_s_prime = tf.einsum(
+            "ij,kj->ki",
+            self.W,
+            tf.map_fn(self.s_prime, tf.einsum("ij,kj->ki", self.V, data)),
+        )
+
+        middle_step = S_prime * w_tn_s_prime
+        sum = tf.einsum("kn,ni->ki", middle_step, self.V)
+
+        return -1 / self.sigma ** 2 * data + self.b + sum
 
     # Latent variable
     def z(self, logits):
