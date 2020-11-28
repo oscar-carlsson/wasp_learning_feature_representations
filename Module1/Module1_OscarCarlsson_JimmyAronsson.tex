@@ -61,6 +61,9 @@ In this document, we summarize our work on the first Homework.
 
 In the first exercise, we fit a multivariate Gaussian to MNIST patches'
 
+Noise distribution $\mathcal{N}(\mathbf{0},\Sigma_n)$
+Model distribution   $\mathcal{N}(\mathbf{0},\Sigma_\theta)$
+
 \subsection*{NCE}
 
 \lipsum[2] 
@@ -72,15 +75,23 @@ J(\theta) \propto \mathbb{E}_{x \sim p_d} \left[ \log \frac{p_\theta(x)}{p_\thet
 
 We approximate the right-hand side of equation \eqref{J_function} using the empirical estimate
 $$\frac{1}{N} \sum_{i=1}^N \log \frac{p_\theta(x_i)}{p_\theta(x_i) + \nu p_n(x_i)} + \frac{\nu}{M} \sum_{j=1}^M \log\frac{\nu p_n(x_j')}{p_\theta(x_j') + \nu p_n(x_j')},$$
-where $x_i \sim p_d$ are training examples and $x_j' \sim p_n$ are drawn from the noise distribution $\mathcal{N}(\mathbf{0},\Sigma_n)$.  We have further chosen the model distribution $\mathcal{N}(\mathbf{0},\Sigma_\theta)$, and the above expression can thus be simplified quite a bit. Start by rewriting both terms in the following way:
+where $x_i \sim p_d$ are training examples and $x_j' \sim p_n$ are drawn from the noise distribution. Next, we simplify the above expression above by rewriting both terms in the following way:
 \begin{alignat*}{1}
 \log \frac{p_\theta(x)}{p_\theta(x) + \nu p_n(x)} &= -\log\left( 1 + \nu \frac{p_n(x)}{p_\theta(x)}\right),\\
-\log \frac{\nu p_n(x)}{p_\theta(x) + \nu p_n(x)} &= - \log \left( \frac{p_\theta(x)}{p_n(x)} + \nu\right),
+\log \frac{\nu p_n(x)}{p_\theta(x) + \nu p_n(x)} &= - \log \left( 1 + \frac{1}{\nu} \frac{p_\theta(x)}{p_n(x)} \right),
 \end{alignat*}
 and then insert the relative probability
 $$w(x) = \frac{p_n(x)}{p_\theta(x)}  = \sqrt{\frac{|\Lambda_n|}{|\Lambda_\theta|}} \exp\left( -\frac{1}{2} x^T \left( \Lambda_n - \Lambda_\theta\right) x\right),$$
 to obtain the relatively simple expression
-$$\boxed{J(\theta) \appropto -\frac{1}{N} \sum_{i=1}^N \log\left( \nu w(x_i) + 1\right) -\frac{\nu}{M} \sum_{j=1}^M \log\left(w(x_j')^{-1} + \nu\right) }$$
+\begin{equation}\label{J_function2}
+J(\theta) \appropto -\frac{1}{N} \sum_{i=1}^N \log\left( \nu w(x_i) + 1\right) -\frac{\nu}{M} \sum_{j=1}^M \log\left(\frac {1}{\nu w(x_j')} + 1\right).
+\end{equation}
+We found that $w(x)$ is typically very small in practice, hence the sum $(\nu w)^{-1} + 1$ is dominated by the first term. Its logarithm can thus be approximated by the numerically more stable expression
+\begin{alignat*}{1}
+\log(\frac{1}{\nu w(x)} + 1) \approx -\log \nu w(x) = \frac{1}{2}x^T (\Lambda_n - \Lambda_\theta) x - \frac{1}{2} \log \left(\nu^2  \frac{|\Lambda_n|}{|\Lambda_\theta|}\right).
+\end{alignat*}
+We could also completely remove the first sum in equation \eqref{J_function2}, as $\log(\nu w(x) + 1) \approx \log 1$. Never\-the\-less, we decided to keep the first sum since it didn't cause computational problems and we didn't want our estimate to be independent of the real training data. Thus, our final estimate is
+$$\boxed{J(\theta) \appropto -\frac{\nu}{2}\log \left(\nu^2 \frac{|\Lambda_n|}{|\Lambda_\theta|}\right) -\frac{1}{N} \sum_{i=1}^N \log\left( \nu w(x_i) + 1\right) + \frac{\nu}{2M} \sum_{j=1}^M {x_j'}^T (\Lambda_n - \Lambda_\theta) x_j'}$$
 
 $$\textit{*Insert figures of samples, loss, etc*}$$
 
@@ -88,7 +99,7 @@ $$\textit{*Insert figures of samples, loss, etc*}$$
 
 
 \begin{alignat*}{1}
-\nabla_x \log p_\theta(x) &= -\Lambda (x-\mu)\\
+\nabla_x \log p_\theta(x) &= -\Lambda_\theta (x-\mu)\\
 \Delta \log p_\theta(x) &= -\trace(\Lambda)
 \end{alignat*}
 
