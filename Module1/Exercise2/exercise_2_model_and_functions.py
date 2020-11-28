@@ -55,6 +55,9 @@ class DEM(tf.keras.layers.Layer):
         return [self.b, self.c, self.V, self.W]
 
     def dense_layer_1(self, data):
+        """
+        Computes s(Vx)
+        """
         # return sigmoid(tf.einsum("ij,kj->ki", self.V, data))
         return tf.map_fn(self.s, tf.einsum("ij,kj->ki", self.V, data))
 
@@ -113,14 +116,10 @@ class DEM(tf.keras.layers.Layer):
         )
 
     def S_prime(self, u):
-        return tf.map_fn(self.S_prime_aux, u)
+        return self.s(u)
 
-    def S_prime_aux(self, u):
-        return tf.cond(
-            u <= 0,
-            lambda: tf.exp(u) / (1 + tf.exp(u)),
-            lambda: 1 - tf.exp(-u) / (1 + tf.exp(-u)),
-        )
+    def S_bis(self, u):
+        return self.s_prime(u)
 
     def s(self, u):
         return tf.map_fn(self.s_aux, u)
@@ -138,6 +137,16 @@ class DEM(tf.keras.layers.Layer):
             u <= 0,
             lambda: 1 / (1 + tf.exp(u)) ** 2,
             lambda: -tf.exp(-u) / (1 + tf.exp(-u)) ** 2,
+        )
+
+    def s_bis(self, u):
+        return tf.map_fn(self.s_bis_aux, u)
+
+    def s_bis_aux(self, u):
+        return tf.cond(
+            u <= 0,
+            lambda: (tf.exp(u) - tf.exp(3 * u)) / (1 + tf.exp(u)) ** 4,
+            lambda: (tf.exp(-3 * u) - tf.exp(-u)) / (1 + tf.exp(-u)) ** 4,
         )
 
     def grad_log_DEM(self, data):
@@ -159,9 +168,53 @@ class DEM(tf.keras.layers.Layer):
         )
 
         middle_step = S_prime * w_tn_s_prime
-        sum = tf.einsum("kn,ni->ki", middle_step, self.V)
+        sum = tf.einsum("kn,ni->ki", middle_step, self.V)  # Summing over n (small k in slides)
 
         return -1 / self.sigma ** 2 * data + self.b + sum
+
+    def laplace_log_DEM(self, data):
+        """
+        I think my calcs are correct but they look like a mess...
+        laplace(log(p))=
+            -1/sigma^2
+            + sum_{n=1}{K}(
+                S''(w^T_n * s(Vx) + c_n) * (w^T_n * s'(Vx))^2 * sum_{i}V_ni^2
+                + S'(w^T_n * s(Vx) + c_n) * (w^T_n * s''(Vx)) * sum_{i}V_ni^2
+            )
+        :param data:
+        :return:
+        """
+
+        g = self.dense_layer_1(data)  # Compute g_theta(x) = s(Vx)
+        u = self.dense_layer_2(g)  # Compute w^T g_theta(x) + c
+
+        Vx = tf.einsum("ij,kj->ki", self.V, data)
+
+        S_prime = tf.map_fn(self.S_prime, u)
+        S_bis = tf.map_fn(self.S_bis, u)
+
+        s_prime = tf.map_fn(self.s_prime, Vx)
+        s_bis = tf.map_fn(self.s_bis, Vx)
+
+        sum_i_V_ni2 = tf.reduce_sum(self.V,axis=1)
+
+        w_tn_s_prime = tf.einsum(
+            "ij,kj->ki",
+            self.W,
+            tf.map_fn(self.s_prime, tf.einsum("ij,kj->ki", self.V, data)),
+        )
+
+        w_tn_s_bis = tf.einsum(
+            "ij,kj->ki",
+            self.W,
+            tf.map_fn(self.s_bis, tf.einsum("ij,kj->ki", self.V, data)),
+        )
+
+        term_1 = S_bis * w_tn_s_prime**2 * sum_i_V_ni2
+        term_2 = S_prime * w_tn_s_bis * sum_i_V_ni2
+        sum = tf.reduce_sum(term_1+term_2, axis=1)
+
+        return -1/self.sigma**2 + sum
 
     # Latent variable
     def z(self, logits):
@@ -176,14 +229,6 @@ class DEM(tf.keras.layers.Layer):
     grad_log_model, laplace_log_model and model_loss
     are untouched from Exercise 1. Haven't changed these yet.
     """
-
-    @property
-    def grad_log_model(self, data):
-        grad_x = -tf.einsum("ij,sj->si", self.cov, (data - self.loc))
-        return grad_x
-
-    def laplace_log_model(self, data):
-        return -tf.einsum("ii", self.cov)
 
     def model_loss(self, data):
         # 1/N sum i from 1 to N (1/2*||grad_x log model(xi)||^2 + laplace log model(xi))
