@@ -95,13 +95,13 @@ It would also be possible to remove the first sum in equation \eqref{J_function2
 $$\boxed{J(\theta) \appropto -\frac{\nu}{2}\log \left(\nu^2 \frac{|\Lambda_n|}{|\Lambda_\theta|}\right) -\frac{1}{N} \sum_{i=1}^N \log\left( \nu w(x_i) + 1\right) + \frac{\nu}{2M} \sum_{j=1}^M {x_j'}^T (\Lambda_n - \Lambda_\theta) x_j'}$$
 We also obtained an expression for the gradient $\nabla J(\theta)$ in terms of the precision matrix $\Lambda_\theta$, though we found this expression rather bulky and difficult to handle. Instead, we used \texttt{tf.GradientTape} to compute the gradient and update $\Lambda_\theta$.  Two approaches were considered for keeping $\Lambda_\theta$ positive definite and retaining its sparse 4-/8-connected neighbourhood-structure after each epoch:
 \begin{enumerate}
-\item Writing the precision matrix as $\Lambda_\theta = (A_\theta ^T A_\theta) \circ M$ for some learned, invertible matrix $A_\theta$ and a pre\-defined masking matrix $M$ to enforce the neighbourhood structure - here, $\circ$ denotes the Hadamard product (i.e. element-wise multiplication).
+\item Writing the precision matrix as $\Lambda_\theta = (A_\theta ^T A_\theta) \cdot M$ for a learned matrix $A_\theta$ and a pre\-defined masking matrix $M \in \{0,1\}^{28\times 28}$ that is applied element-wise, enforcing the neighbourhood structure by killing undesired matrix elements.
 
-The product $A^T A$ is guaranteed to be symmetric positive definite whenever $A$ is invertible, and it can be shown that the Hadamard product of two positive definite matrices is again positive definite, so we hoped this would be sufficient to guarantee that $\Lambda_\theta$ is symmetric positive definite. Unfortunately, we eventually realized that our masking matrix is not positive definite, so we could not obtain such a guarantee on $\Lambda_\theta$. Learning $A_\theta$ also turned out to be slower than the following approach, so we ditched this one.
+The matrix product $A_\theta^T A_\theta$ is guaranteed to be symmetric positive definite whenever $A_\theta$ is invertible, which any square matrix almost surely is. Combined with the fact that element-wise products of positive definite matrices is again positive definite, we hoped this would prove that $\Lambda_\theta$ is symmetric positive definite. Unfortunately, we eventually realized that our masking matrix is not positive definite, so we cannot guarantee that $\Lambda_\theta$ is, either. Learning $A_\theta$ also turned out to be slower than the approach below.
 
-\item Forcing a symmetric gradient by throwing away its lower triangular part and replacing it with the transpose of its upper triangular part. We then applied the previously mentioned masking matrix $M$ to force the neighbourhood structure on the gradient. This ensures that $\Lambda_\theta$ is symmetric and retains its neighbourhood structure for all epochs, though we still cannot guarantee it being positive definite.
+\item Forcing a symmetric gradient by throwing away its lower triangular part and replacing it with the transpose of its upper triangular part. We then applied the previously mentioned masking matrix $M$ to force the neighbourhood structure on the gradient. This ensures that $\Lambda_\theta$ is symmetric and retains its neighbourhood structure for all epochs. On the other hand, we still cannot guarantee that $\Lambda_\theta$ remains positive definite.
 \end{enumerate}
-We later realized that $\Lambda_\theta$ can also be modeled through its eigendecomposition, which would make it easy to ensure positive (semi)definiteness by flipping the signs of negative eigenvalues. But we didn't have time to implement this change.
+We ended up choosing the latter approach.\footnote{We later realized $\Lambda_\theta$ can also be modeled through its eigendecomposition, which would make it easy to ensure positive (semi)definiteness by flipping the signs of negative eigenvalues. Due to time constraints and different priorities, however, we never tried implementing this approach.}
 
 $$\textit{*Insert figures of samples, loss, etc*}$$
 
@@ -111,7 +111,7 @@ When given the choice between cNCE and score matching, we figured the latter wou
 \begin{alignat*}{1}
 J(\mu,\Lambda_\theta) &= \int \frac{1}{2} \|\nabla_x \log p_\theta(x)\|^2 + \Delta \log p_\theta(x) \approx \frac{1}{2N} \sum_{i=1}^N \| \Lambda_\theta (x_i - \mu)\|^2 - \tr(\Lambda_\theta),
 \end{alignat*}
-and start training. Gradients were again computed with \texttt{Gradient Tape} and enforced symmetry.
+and start training. Gradients were again computed with \texttt{tf.GradientTape}, and the symmetry and neighbourhood structure was enforced in the same way as for NCE.
 
 \begin{figure}[H]
 \centering
