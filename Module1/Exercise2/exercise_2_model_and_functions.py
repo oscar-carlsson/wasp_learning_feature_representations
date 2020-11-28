@@ -230,18 +230,20 @@ class DEM(tf.keras.layers.Layer):
     are untouched from Exercise 1. Haven't changed these yet.
     """
 
-    def model_loss(self, data):
+    def score_matching(self, data):
         # 1/N sum i from 1 to N (1/2*||grad_x log model(xi)||^2 + laplace log model(xi))
         N = len(data)
-        loss = 0
+        '''loss = 0
         for sample in range(N):
             loss = (
                 loss
-                + 1 / 2 * tf.linalg.norm(self.grad_log_model(data[sample])) ** 2
-                + self.laplace_log_model(data[sample])
+                + 1 / 2 * tf.linalg.norm(self.grad_log_DEM(data[sample])) ** 2
+                + self.laplace_log_DEM(data[sample])
             )
 
-        loss = 1 / N * loss
+        loss = 1 / N * loss'''
+        loss = 1/2 * tf.map_fn(tf.linalg.norm, self.grad_log_DEM(data)) ** 2 + self.laplace_log_DEM(data)
+        loss = 1/N * tf.reduce_sum(loss)
         return loss
 
 
