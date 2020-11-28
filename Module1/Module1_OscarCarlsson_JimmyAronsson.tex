@@ -22,6 +22,7 @@
 \usepackage[hidelinks]{hyperref}
 \usepackage{parskip}
 \usepackage{lipsum}
+\usepackage{pgfplots}
 
 \theoremstyle{definition}
 \newtheorem{definition}{Definition}
@@ -86,23 +87,51 @@ to obtain the relatively simple expression
 \begin{equation}\label{J_function2}
 J(\theta) \appropto -\frac{1}{N} \sum_{i=1}^N \log\left( \nu w(x_i) + 1\right) -\frac{\nu}{M} \sum_{j=1}^M \log\left(\frac {1}{\nu w(x_j')} + 1\right).
 \end{equation}
-We found that $w(x)$ is typically very small in practice, hence the sum $(\nu w)^{-1} + 1$ is dominated by the first term. Its logarithm can thus be approximated by the numerically more stable expression
+We found that $w(x)$ is typically very small in practice, hence the sum $(\nu w)^{-1} + 1$ is dominated by its first term. Its logarithm can thus be approximated by the numerically more stable expression
 \begin{alignat*}{1}
 \log(\frac{1}{\nu w(x)} + 1) \approx -\log \nu w(x) = \frac{1}{2}x^T (\Lambda_n - \Lambda_\theta) x - \frac{1}{2} \log \left(\nu^2  \frac{|\Lambda_n|}{|\Lambda_\theta|}\right).
 \end{alignat*}
-We could also completely remove the first sum in equation \eqref{J_function2}, as $\log(\nu w(x) + 1) \approx \log 1$. Never\-the\-less, we decided to keep the first sum since it didn't cause computational problems and we didn't want our estimate to be independent of the real training data. Thus, our final estimate is
+It would also be possible to remove the first sum in equation \eqref{J_function2}, since $\log(\nu w(x) + 1) \approx \log 1$. We decided to keep it, however, because it didn't cause computational problems and we didn't want our estimate to be independent of the real training data. Thus, our final estimate is
 $$\boxed{J(\theta) \appropto -\frac{\nu}{2}\log \left(\nu^2 \frac{|\Lambda_n|}{|\Lambda_\theta|}\right) -\frac{1}{N} \sum_{i=1}^N \log\left( \nu w(x_i) + 1\right) + \frac{\nu}{2M} \sum_{j=1}^M {x_j'}^T (\Lambda_n - \Lambda_\theta) x_j'}$$
+We also obtained an expression for the gradient $\nabla J(\theta)$ in terms of the precision matrix $\Lambda_\theta$, though we found this expression rather bulky and difficult to handle. Instead, we used \texttt{tf.GradientTape} to compute the gradient and update $\Lambda_\theta$.  Two approaches were considered for keeping $\Lambda_\theta$ positive definite and retaining its sparse 4-/8-connected neighbourhood-structure after each epoch:
+\begin{enumerate}
+\item Writing the precision matrix as $\Lambda_\theta = (A_\theta ^T A_\theta) \circ M$ for some learned, invertible matrix $A_\theta$ and a pre\-defined masking matrix $M$ to enforce the neighbourhood structure - here, $\circ$ denotes the Hadamard product (i.e. element-wise multiplication).
+
+The product $A^T A$ is guaranteed to be symmetric positive definite whenever $A$ is invertible, and it can be shown that the Hadamard product of two positive definite matrices is again positive definite, so we hoped this would be sufficient to guarantee that $\Lambda_\theta$ is symmetric positive definite. Unfortunately, we eventually realized that our masking matrix is not positive definite, so we could not obtain such a guarantee on $\Lambda_\theta$. Learning $A_\theta$ also turned out to be slower than the following approach, so we ditched this one.
+
+\item Forcing a symmetric gradient by throwing away its lower triangular part and replacing it with the transpose of its upper triangular part. We then applied the previously mentioned masking matrix $M$ to force the neighbourhood structure on the gradient. This ensures that $\Lambda_\theta$ is symmetric and retains its neighbourhood structure for all epochs, though we still cannot guarantee it being positive definite.
+\end{enumerate}
+We later realized that $\Lambda_\theta$ can also be modeled through its eigendecomposition, which would make it easy to ensure positive (semi)definiteness by flipping the signs of negative eigenvalues. But we didn't have time to implement this change.
 
 $$\textit{*Insert figures of samples, loss, etc*}$$
 
 \subsection*{Score Matching}
 
-
+When given the choice between cNCE and score matching, we figured the latter would be more interesting, it being a fundamentally different approach than NCE. Fortunately, score matching also turned out to be easy to implement because the relevant analysis had already been excellently performed in the presentation. It allowed us to more or less directly implement the loss function
 \begin{alignat*}{1}
-\nabla_x \log p_\theta(x) &= -\Lambda_\theta (x-\mu)\\
-\Delta \log p_\theta(x) &= -\trace(\Lambda)
+J(\mu,\Lambda_\theta) &= \int \frac{1}{2} \|\nabla_x \log p_\theta(x)\|^2 + \Delta \log p_\theta(x) \approx \frac{1}{2N} \sum_{i=1}^N \| \Lambda_\theta (x_i - \mu)\|^2 - \tr(\Lambda_\theta),
 \end{alignat*}
+and start training. Gradients were again computed with \texttt{Gradient Tape} and enforced symmetry.
 
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.8]
+\begin{axis}[
+tick align=outside,
+tick pos=left,
+x grid style={white!69.0196078431373!black},
+xmin=-0.5, xmax=9.5,
+xtick style={color=black},
+y dir=reverse,
+y grid style={white!69.0196078431373!black},
+ymin=-0.5, ymax=9.5,
+ytick style={color=black}
+]
+\addplot graphics [includegraphics cmd=\pgfimage,xmin=-0.5, xmax=9.5, ymin=9.5, ymax=-0.5] {test-000.png};
+\end{axis}
+\end{tikzpicture}
+\caption{Test image and caption}
+\end{figure}
 
 
 
