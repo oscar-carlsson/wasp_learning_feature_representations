@@ -1,0 +1,137 @@
+\documentclass[a4paper]{article}
+
+\usepackage[english]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath, amsthm}
+\usepackage{graphicx}
+\usepackage[colorinlistoftodos]{todonotes}
+\usetikzlibrary{trees}
+\usepackage{geometry}
+\usepackage{amssymb}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{trees}
+\pagestyle{fancy}
+
+\usepackage{comment}
+\usepackage{float}
+\usepackage{mathrsfs}
+\usepackage{physics}
+\usepackage{bbm}
+\usepackage[hidelinks]{hyperref}
+\usepackage{parskip}
+\usepackage{lipsum}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{example}{Example}
+\newtheorem{remark}{Remark}
+
+\theoremstyle{plain}
+\newtheorem{lemma}{Lemma}
+\newtheorem{proposition}{Proposition}
+\newtheorem{theorem}{Theorem}
+\newtheorem{corollary}{Corollary}
+
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\newcommand{\approptoinn}[2]{\mathrel{\vcenter{
+  \offinterlineskip\halign{\hfil$##$\cr
+    #1\propto\cr\noalign{\kern2pt}#1\sim\cr\noalign{\kern-2pt}}}}}
+
+\newcommand{\appropto}{\mathpalette\approptoinn\relax}
+
+\begin{document}
+
+
+{\center\Large\scshape Learning Feature Representations\par}
+{\center\large\scshape Module 1 Homework\par}
+\vspace{2mm}
+{\center\scshape Oscar Carlsson\\Jimmy Aronsson\par}
+\vspace{1mm}
+{\center\small\scshape \today\par}
+\vspace{7mm}
+%\maketitle
+
+In this document, we summarize our work on the first Homework.
+
+\section*{\center Exercise 1}
+
+In the first exercise, we fit a multivariate Gaussian to MNIST patches'
+
+\subsection*{NCE}
+
+\lipsum[2] 
+
+\begin{equation}\label{J_function}
+J(\theta) \propto \mathbb{E}_{x \sim p_d} \left[ \log \frac{p_\theta(x)}{p_\theta(x) + \nu p_n(x)}\right] + \nu \mathbb{E}_{x \sim p_n} \left[ \log \frac{ \nu p_n(x)}{p_\theta(x) + \nu p_n(x)}\right].
+\end{equation}
+
+
+We approximate the right-hand side of equation \eqref{J_function} using the empirical estimate
+$$\frac{1}{N} \sum_{i=1}^N \log \frac{p_\theta(x_i)}{p_\theta(x_i) + \nu p_n(x_i)} + \frac{\nu}{M} \sum_{j=1}^M \log\frac{\nu p_n(x_j')}{p_\theta(x_j') + \nu p_n(x_j')},$$
+where $x_i \sim p_d$ are training examples and $x_j' \sim p_n$ are drawn from the noise distribution $\mathcal{N}(\mathbf{0},\Sigma_n)$.  We have further chosen the model distribution $\mathcal{N}(\mathbf{0},\Sigma_\theta)$, and the above expression can thus be simplified quite a bit. Start by rewriting both terms in the following way:
+\begin{alignat*}{1}
+\log \frac{p_\theta(x)}{p_\theta(x) + \nu p_n(x)} &= -\log\left( 1 + \nu \frac{p_n(x)}{p_\theta(x)}\right),\\
+\log \frac{\nu p_n(x)}{p_\theta(x) + \nu p_n(x)} &= - \log \left( \frac{p_\theta(x)}{p_n(x)} + \nu\right),
+\end{alignat*}
+and then insert the relative probability
+$$w(x) = \frac{p_n(x)}{p_\theta(x)}  = \sqrt{\frac{|\Lambda_n|}{|\Lambda_\theta|}} \exp\left( -\frac{1}{2} x^T \left( \Lambda_n - \Lambda_\theta\right) x\right),$$
+to obtain the relatively simple expression
+$$\boxed{J(\theta) \appropto -\frac{1}{N} \sum_{i=1}^N \log\left( \nu w(x_i) + 1\right) -\frac{\nu}{M} \sum_{j=1}^M \log\left(w(x_j')^{-1} + \nu\right) }$$
+
+$$\textit{*Insert figures of samples, loss, etc*}$$
+
+\subsection*{Score Matching}
+
+
+\begin{alignat*}{1}
+\nabla_x \log p_\theta(x) &= -\Lambda (x-\mu)\\
+\Delta \log p_\theta(x) &= -\trace(\Lambda)
+\end{alignat*}
+
+
+
+
+
+
+
+\section*{\center Exercise 2}
+
+The first step was to extract 50,000 image patches of resolution $28\times 28$. We solved this problem by running the following loop: In each iteration, an image from the \texttt{Flickr30k} dataset is loaded, converted to grayscale, and split into multiple patches using the method \texttt{tf.image.extract\_patches}. Two such patches are selected at random and saved, before moving on to the next iteration, and the program terminates after saving 50,000 patches. See \texttt{create\_image\_patches.py} for details.
+
+Next, we computed a constrained Gaussian representing the above data \lipsum[2]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\end{document}

@@ -126,7 +126,7 @@ J(\theta) \approx \ &\frac{1}{N} \sum_{i=1}^N  f_\theta(x_i)  + \frac{\nu}{M} \s
 \end{alignat*}
 We can also rewrite this in another way, by factorizing out $p_\theta$ instead of $p_n$ in equation \eqref{eq1}. Then we should get something similar to
 \begin{alignat*}{1}
-J(\theta) \approx &\frac{\nu}{M} \sum_{j=1}^M  \big[ f_n(x_j') - f_\theta(x_j')\big]  - \nu \log (\nu Z_\theta / Z_n) -\\
+J(\theta) \approx &\frac{\nu}{M} \sum_{j=1}^M  \big[ f_n(x_j') - f_\theta(x_j')\big]  + \nu \log (\nu Z_\theta / Z_n) -\\
 - \ & \frac{1}{N} \sum_{i=1}^N \log\left( \nu \frac{ Z_\theta}{Z_n} e^{f_n(x_i)-f_\theta(x_i)} + 1\right) - \frac{\nu}{M} \sum_{j=1}^M \log\left( \nu\frac{Z_\theta}{Z_n} e^{f_n(x_j')-f_\theta(x_j')} + 1\right)
 \end{alignat*}
 I spent a very small amount of time trying to see if these sums of logarithms simplify, using the additive law of logarithms, but they don't seem to. I also tried calculating the average of these two approximations of $J(\theta)$ to see if that would simplify the logarithms, but that didn't seem to give me anything either.
@@ -134,7 +134,7 @@ I spent a very small amount of time trying to see if these sums of logarithms si
 \pagebreak
 Now suppose that we have normalized so that $p_\theta \sim \mathcal{N}(0,\Sigma_\theta)$ and $p_n \sim \mathcal{N}(0, \Sigma_n)$ with $\Lambda = \Sigma^{-1}$. Using the identity $\det(\Sigma) = 1 / \det(\Lambda)$, the above approximation of $J(\theta)$ becomes
 $$\boxed{\begin{aligned}
-J(\theta) \approx &\frac{\nu}{M} \left( \sum_{j=1}^M {x_j'}^T (\Lambda_n - \Lambda_\theta) {x_j'} \right)- \frac{\nu}{2} \log\left( \nu^2 \frac{\det \Lambda_n}{\det \Lambda_\theta}\right) -\\
+J(\theta) \approx &\frac{\nu}{M} \left( \sum_{j=1}^M {x_j'}^T (\Lambda_n - \Lambda_\theta) {x_j'} \right)+ \frac{\nu}{2} \log\left( \nu^2 \frac{\det \Lambda_n}{\det \Lambda_\theta}\right) -\\
 - \ &\frac{1}{N} \sum_{i=1}^N \log\left( \nu \sqrt{\frac{\det \Lambda_n}{\det \Lambda_\theta}} \exp\left({x_i}^T (\Lambda_n - \Lambda_\theta) {x_i}\right) + 1\right) -\\
 - \ &\frac{\nu}{M} \sum_{j=1}^M \log\left( \nu \sqrt{\frac{\det \Lambda_n}{\det \Lambda_\theta}} \exp\left({x_j'}^T (\Lambda_n - \Lambda_\theta) {x_j'}\right) + 1\right)
 \end{aligned}}$$
@@ -204,8 +204,7 @@ for all samples $x \in \{ x_1,\ldots,x_N,x_1',\ldots,x_M'\}$.
 
 \item[Step 3.] Compute the NCE objective\footnote{The approximation sign is not really correct. It is an approximation of an expectation \emph{proportional to} $J(\theta)$.}
 $$\boxed{\begin{aligned}
-J(\theta) \approx &\frac{\nu}{M} \left( \sum_{j=1}^M {x_j'}^T (\Lambda_n - \Lambda_\theta) {x_j'} \right)- \frac{\nu}{2} \log\left( \nu^2 \frac{\det \Lambda_n}{\det \Lambda_\theta}\right) -\\
-- \ &\frac{1}{N} \sum_{i=1}^N \log\left( \nu w(x_i) + 1\right) - \frac{\nu}{M} \sum_{j=1}^M \log\left( \nu w(x_j')+ 1\right)
+J(\theta) \approx &\frac{\nu}{M} \sum_{j=1}^M \log\left( \frac{\nu w(x_j')}{\nu w(x_j') + 1}\right) -\frac{1}{N} \sum_{i=1}^N \log\left( \nu w(x_i) + 1\right)
 \end{aligned}}$$
 
 \item[Step 4.] Minimize the NCE objective, either using Gradient Tape or using the relation
@@ -264,7 +263,7 @@ for each parameter $\theta_k$. It might be possible to construct a tensor $\nabl
 \item Compute a (constrained) Gaussian representing the data
 \begin{itemize}
 \item Computing the empirical mean
-\item Using the method from Exercie 1 to estimate a constrained precision matris $\Lambda$
+\item Using the method from Exercise 1 to estimate a constrained precision matris $\Lambda$
 \item Using the method of your choice (SM, NCE, cNCE)
 \item We will optionally whiten the patches using this estimate in later steps
 \end{itemize}
