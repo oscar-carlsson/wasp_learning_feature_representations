@@ -246,6 +246,11 @@ class DEM(tf.keras.layers.Layer):
         loss = 1/N * tf.reduce_sum(loss)
         return loss
 
+    def save(self, path, other=None):
+        if other is None:
+            np.save(path + "trainable_parameters.npy", self.trainable_variables)
+        else:
+            np.save(path + "trainable_parameters"+other+".npy", self.trainable_variables)
 
 class Params:
     def __init__(self, shape):
@@ -262,20 +267,19 @@ class Params:
         self.K1 = 64
         self.K2 = 64
         self.V = tf.Variable(
-            tf.random.normal(shape=(self.K1, dim)), trainable=True, name="V"
+            tf.random.normal(shape=(self.K1, dim), dtype=tf.float64), trainable=True, name="V"
         )
         self.W = tf.Variable(
-            tf.random.normal(shape=(self.K2, self.K1)), trainable=True, name="W"
+            tf.random.normal(shape=(self.K2, self.K1), dtype=tf.float64), trainable=True, name="W"
         )
 
         self.c = tf.Variable(
-            tf.random.normal(shape=(1, self.K2)), trainable=True, name="c"
+            tf.random.normal(shape=(1, self.K2), dtype=tf.float64), trainable=True, name="c"
         )
 
-        vec = tf.random.normal(shape=(1, dim))
+        vec = tf.random.normal(shape=(1, dim), dtype=tf.float64)
         self.b = tf.Variable(
             vec,
-            dtype=tf.float32,
             trainable=True,
             name="b",
         )

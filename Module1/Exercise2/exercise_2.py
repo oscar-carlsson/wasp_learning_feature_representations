@@ -1,16 +1,21 @@
-from unpack_data import get_mnist
+from unpack_data import get_mnist, get_flickr30k
 import numpy as np
 import tensorflow as tf
-import tensorflow.keras.optimizers as optimizers
-import tensorflow_probability as tfp
 import matplotlib.pyplot as plt
+import tensorflow.keras.optimizers as optimizers
 import progressbar
+
+import exercise_1_model_and_functions as ex1
+
 from generate_mask import adjacency_mask
-import scipy.linalg
 
 from exercise_2_model_and_functions import DEM
 from exercise_2_model_and_functions import Params
 from exercise_2_model_and_functions import whiten
+from exercise_2_model_and_functions import visualize_filters
+
+import traceback
+import scipy.linalg
 
 """
  IMPORTANT: Just like the presentation, I have been sloppy
@@ -24,35 +29,71 @@ Everything below here is untouched from Exercise 1.
 Haven't started changing that code yet.
 """
 
-data_dictionary = get_mnist()
+"""
+Setting variables for training stuff
+"""
+training_saving_directory = "/home/oscar/gitWorkspaces/wasp_learning_feature_representations_module_1/Module1/Exercise2/saving_during_training/"
 
-train_images = data_dictionary["train-images"]
-train_labels = data_dictionary["train-labels"]
+# Variables for gaussian training
+learning_rate_gaussian = 0.001
+batch_size_gaussian = 100
+mask_type = "orthogonal"
+epochs_gaussian = 1
+max_epoch_gaussian = 100
+saving_gaussian_training = True
+decay_factor_gaussian = 1
+
+whitening = True
+
+# Variables for DEM training
+learning_rate_DEM = 0.001
+epochs_DEM = 1
+batch_size_DEM = 1000
+decay_factor_DEM = 1
+max_epoch_DEM = 100
+saving_DEM_training = True
+
+"""
+Load and preprocess mnist data. (This will be substituted with other data.)
+"""
+train_images = np.array(get_flickr30k())
 
 train_images = train_images / 255
-
-train_images += np.random.normal(scale=1 / 100, size=np.shape(train_images))
 
 shape = np.shape(train_images)
 train_images = np.reshape(train_images, (shape[0], shape[1] * shape[2]))
 
 train_images = [img - np.mean(img) for img in train_images]
-train_images = np.array(train_images, dtype=np.single)
+train_images = np.array(train_images, dtype=np.double)
 
-# train_images = tf.constant(train_images, dtype=tf.float32)
+"""
+Create and train gaussian model for estimating Lambda
+"""
 
-model = GaussianModel((28, 28))
-print(
-    "Own layer output: ",
-    model(tf.constant(train_images[:3], dtype=tf.float32)).numpy(),
-)
 
-eta = 0.001
-epochs = 1
-batch_size = 1
 
-loss_fcn = model.model_loss
-optimizer = optimizers.RMSprop(learning_rate=eta)
+mask = adjacency_mask(shape=(28, 28), mask_type=mask_type)
+gaussian_model_params = ex1.Params((28, 28), mask=mask)
+
+gaussian_model = ex1.GaussianModel((28, 28), params=gaussian_model_params)
+
+# @tf.function
+def train_step(data):
+    with tf.GradientTape(persistent=True) as tape:
+
+        loss = loss_fcn(
+            data,
+        )
+
+    grads = ex1.make_symmetric(
+        tape.gradient(loss, gaussian_model.precision_matrix), mask=gaussian_model.mask
+    )
+    optimizer.apply_gradients(zip([grads], [gaussian_model.precision_matrix]))
+    return loss, grads
+
+
+loss_fcn = gaussian_model.model_loss
+optimizer = optimizers.RMSprop(learning_rate=learning_rate_gaussian)
 
 widgets = [
     " [",
@@ -64,52 +105,231 @@ widgets = [
     ") ",
 ]
 
-with tf.GradientTape(persistent=True) as tape:
-    out2 = model(train_images[:3])
-    loss = model.model_loss(train_images[:3])
+loss_epochs = []
+loss = []
+loss_diff = []
+grads = []
+epoch = 0
 
-grads = tape.gradient(loss, model.covariance_matrix)
+nan_precision = False
+nan_loss = False
+train_dataset = tf.data.Dataset.from_tensor_slices(train_images)
+train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size=batch_size_gaussian)
+for epoch in range(epochs_gaussian):
+    # while True:
+    print("Start of epoch ", epoch + 1, "\n")
+    bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
+    loss_epoch = []
+    for step, train_image_batch in enumerate(train_dataset):
 
-print(grads)
-optimizer.apply_gradients(zip([grads], [model.covariance_matrix]))
+        worked = True
+        try:
+            step_loss, step_grads = train_step(train_image_batch)
+        except:
+            traceback.print_exc()
+            worked = False
 
-print(model.model_loss(tf.constant(train_images[:3], dtype=tf.float32)))
+        if np.any(np.isnan(gaussian_model.precision_matrix.numpy())):
+            nan_precision = True
+            break
+
+        if np.isnan(step_loss):
+            nan_loss = True
+            break
+
+        if (step % 100 == 0) and worked:
+            grads.append(step_grads.numpy())
+            loss_epoch.append(step_loss)
+
+        bar.update(step)
+
+    loss_epochs.append(loss_epoch)
+    loss.append(np.mean(loss_epoch))
+
+    print("End of epoch loss: ", np.mean(loss_epoch))
+
+    if saving_gaussian_training:
+
+        prec_name = (
+            training_saving_directory
+            + "precision_matrix_mask_"
+            + mask_type
+            + "_epoch_"
+            + str(epoch + 1)
+            + ".npy"
+        )
+        np.save(prec_name, gaussian_model.precision_matrix.numpy())
+
+        loss_name = (
+            training_saving_directory
+            + "loss_for_each_step_mask_"
+            + mask_type
+            + "_epoch_"
+            + str(epoch + 1)
+            + ".npy"
+        )
+        np.save(loss_name, loss_epoch)
+
+    if epoch >= 1:
+        loss_diff.append(
+            loss[-1] - loss[-2]
+        )  # If loss is reducing then loss[-1]<loss[-2] --> loss[-1]-loss[-2]<0
+        if loss_diff[-1] > 0:
+            learning_rate_gaussian = learning_rate_gaussian * decay_factor_gaussian
+            optimizer.lr.assign(learning_rate_gaussian)
+            print(optimizer.get_config()["learning_rate"])
+    if epoch >= 3:
+        print(
+            "Mean of last three loss diffs (",
+            loss_diff[-3:],
+            ") is: ",
+            np.mean(loss_diff[-3:]),
+            "\n",
+        )
+        if np.mean(loss_diff[-3:]) > 0:
+            break
+
+    if nan_precision:
+        print("NaN precision!!")
+        break
+
+    if nan_loss:
+        print("NaN loss!!")
+        break
+
+    if epoch >= max_epoch_gaussian:
+        break
+
+    epoch += 1
+
+dataset_precision_matrix = gaussian_model.precision_matrix.numpy()
+
+"""
+Data whitening
+"""
+
+if whitening:
+    C = np.linalg.inv(dataset_precision_matrix)
+    eigs, U = np.linalg.eig(C)
+
+    eigs = [1 if eig < 0 else eig for eig in eigs]
+
+    train_images = np.einsum(
+        "ij,kj->ki",
+        np.transpose(U)
+        @ scipy.linalg.sqrtm(np.linalg.inv(np.diag(eigs)))
+        @ np.transpose(U),
+        train_images,
+    )
+
+"""
+Create and train DEM on whitened data
+"""
+
+model = DEM((28, 28))  # Testing defining a model
+
+loss_fcn = model.score_matching
+optimizer = optimizers.RMSprop(learning_rate=learning_rate_DEM)
+
+widgets = [
+    " [",
+    progressbar.Timer(format="Elapsed time: %(elapsed)s"),
+    "] ",
+    progressbar.Bar("*"),
+    " (",
+    progressbar.ETA(),
+    ") ",
+]
 
 
 @tf.function
 def train_step(data):
     with tf.GradientTape() as tape:
-        loss = loss_fcn(model(data))
+        loss = loss_fcn(data)
 
-    grads = tape.gradient(loss, model.cov) * model.mask
-    optimizer.apply_gradients(zip([grads], [model.cov]))
+    grads = tape.gradient(loss, model.trainable_variables)
+    optimizer.apply_gradients(zip(grads, model.trainable_variables))
     return loss, grads
 
 
-train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels))
-train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size=batch_size)
+train_dataset = tf.data.Dataset.from_tensor_slices(train_images)
+train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size=batch_size_DEM)
 
+epoch_loss = []
 loss = []
-for epoch in range(epochs):
+epoch = 0
+#for epoch in range(epochs_DEM):
+while True:
     print("Start of epoch ", epoch + 1)
     bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
-    for step, (train_image_batch, _) in enumerate(train_dataset):
+    for step, train_image_batch in enumerate(train_dataset):
         step_loss, step_grads = train_step(train_image_batch)
         # print(step_grads)
-        loss.append(step_loss)
+        epoch_loss.append(step_loss)
         bar.update(step)
+
+    loss.append(np.mean(epoch_loss))
+    loss.append(np.mean(loss_epoch))
+
+    print("End of epoch loss: ", np.mean(loss_epoch))
+
+    if saving_DEM_training:
+        model.save(training_saving_directory)
+
+    if epoch >= 1:
+        loss_diff.append(
+            loss[-1] - loss[-2]
+        )  # If loss is reducing then loss[-1]<loss[-2] --> loss[-1]-loss[-2]<0
+        if loss_diff[-1] > 0:
+            learning_rate_DEM = learning_rate_DEM * decay_factor_DEM
+            optimizer.lr.assign(learning_rate_DEM)
+            print(optimizer.get_config()["learning_rate"])
+    if epoch >= 3:
+        print(
+            "Mean of last three loss diffs (",
+            loss_diff[-3:],
+            ") is: ",
+            np.mean(loss_diff[-3:]),
+            "\n",
+        )
+        if np.mean(loss_diff[-3:]) > 0:
+            break
+
+    if epoch >= max_epoch_DEM:
+        break
+
+    epoch += 1
 
 plt.plot(loss)
 plt.show()
 
 print(model(train_images[:3]))
 
-arr = model.cov.numpy()
-plt.imshow(arr)
-plt.show()
+visualize_filters(model.V.numpy(), background_val=-10)
 
-"""distribution = model2.get_multivariate_distrubution()
 
-sample = distribution.sample()
+'''
+"""
+Model testing
+"""
+whitening = True
 
-print(np.shape(sample))"""
+
+with tf.GradientTape() as tape:
+    loss = tf.reduce_sum(
+        model.exponent_marginal_dist(train_images[:3])
+    )  # A mockup loss function
+
+grad_log = model.grad_log_DEM(train_images[:3])
+print(grad_log)
+
+laplace_log = model.laplace_log_DEM(train_images[:3])
+print(laplace_log)
+with tf.GradientTape() as tape:
+    loss = model.score_matching(train_images[:3])
+print(loss)
+
+grads = tape.gradient(
+    loss, model.trainable_variables
+)  # Get gradients of loss wrt [self.b, self.c, self.V, self.W]
+print(grads)'''

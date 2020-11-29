@@ -7,7 +7,10 @@ from exercise_1_model_and_functions import make_symmetric
 from exercise_1_model_and_functions import Params
 from exercise_1_model_and_functions import GaussianModel
 
+import tikzplotlib as tpl
+
 import os
+
 '''grads = np.load('../mnist/gradients.npy')
 precision_matrix_before = np.load('../mnist/precision_matrix_before.npy')
 precision_matrix_after = np.load('../mnist/precision_matrix_after.npy')
@@ -24,6 +27,10 @@ current_precision_before_crash = np.load('../mnist/current_precision_matrix_befo
 print(current_precision_before_crash)
 plt.imshow(current_precision_before_crash)
 plt.show()'''
+base_path = "/home/oscar/gitWorkspaces/wasp_learning_feature_representations_module_1/Module1/Exercise1/Figures/"
+NCE = False
+mask_type = "eight_neighbours"
+epochs = np.arange(98) + 1
 
 data_dictionary = get_mnist()
 
@@ -42,27 +49,78 @@ train_images = np.reshape(train_images, (shape[0], shape[1] * shape[2]))
 
 pixel_wise_mean = np.mean(train_images, axis=0)
 
-NCE = False
+empirical_cov = 1 / (shape[0] - 1) * np.einsum("ki,kj->ij", train_images, train_images)
+empirical_prec = np.linalg.inv(empirical_cov)
 
-epochs = np.arange(100)+1
+# precision_after = np.load('../mnist/precision_matrix_NCE_'+str(NCE)+'_epoch_'+str(epochs[-1])+'.npy')
+precision_after = np.load(
+    "../mnist/precision_matrix_NCE_" + str(NCE) + "_mask_" + mask_type + "_epoch_" + str(epochs[-1]) + ".npy")
+
+'''plt.imshow(empirical_prec-precision_after)
+plt.title("Empirical precision matrix minus trained precision matrix for MNIST with mask "+mask_type)
+plt.colorbar()
+tpl.save(base_path+"empirical_precision_matrix_minus_trained_for_mnist_mask_"+mask_type+"_nce_"+str(NCE)+".tex")
+plt.clf()
+
+plt.imshow(empirical_prec[-28*2-14:,-28*2-14:]-precision_after[-28*2-14:,-28*2-14:])
+plt.title("Last 70 elements of empirical precision matrix minus trained precision matrix for MNIST with mask "+mask_type)
+plt.colorbar()
+tpl.save(base_path+"last_70_elements_of_empirical_precision_matrix_minus_trained_for_mnist_mask_"+mask_type+"_nce_"+str(NCE)+".tex")
+#plt.show()
+plt.clf()'''
+
+plt.imshow(empirical_prec)
+plt.title("Empirical precision matrix for MNIST")
+plt.colorbar()
+tpl.save(base_path+"empirical_precision_matrix_minus_trained_for_mnist.tex")
+plt.clf()
+
+plt.imshow(empirical_prec[-28*2-14:,-28*2-14:])
+plt.title("Last 70 elements of empirical precision matrix for MNIST")
+plt.colorbar()
+tpl.save(base_path+"last_70_elements_of_empirical_precision_matrix.tex")
+#plt.show()
+plt.clf()
+
+
+
 loss = []
-for epoch in epochs:
+'''for epoch in epochs:
     filename = 'loss_for_each_step_NCE_'+str(NCE)+'_during_epoch_'+str(epoch)+'.npy'
-    loss.append(np.load('../mnist/'+filename))
+    loss.append(np.load('../mnist/'+filename))'''
 
-loss = np.concatenate(loss)
+for epoch in epochs:
+    filename = 'loss_for_each_step_NCE_' + str(NCE) + "_mask_" + mask_type + "_epoch_" + str(epoch) + ".npy"
+    loss.append(np.mean(np.load('../mnist/' + filename)))
+
+# loss = np.concatenate(loss)
+
 
 plt.plot(loss)
-plt.show()
+plt.title('Loss for NCE ' + str(NCE) + ' with ' + mask_type + ' mask')
+#plt.show()
+tpl.save(base_path+"Loss_for_NCE_" + str(NCE) + "_with_" + mask_type + "_mask.tex")
+plt.clf()
 
 
-precision_after = np.load('../mnist/precision_matrix_NCE_'+str(NCE)+'_epoch_'+str(epochs[-1])+'.npy')
 plt.imshow(precision_after)
-plt.show()
+plt.title("Precision matrix after training for NCE "+str(NCE)+" with "+mask_type+" mask")
+plt.colorbar()
+tpl.save(base_path+"Precision_matrix_after_training_for_NCE_"+str(NCE)+"_with_"+mask_type+"_mask.tex")
+#plt.show()
+plt.clf()
 
-precision_before = np.load('../mnist/precision_matrix_before_NCE.npy')
+plt.imshow(precision_after[-28*2-14:, -28*2-14:])
+plt.colorbar()
+tpl.save(base_path+"Last_70_elements_Precision_matrix_after_training_for_NCE_"+str(NCE)+"_with_"+mask_type+"_mask.tex")
+#plt.show()
+plt.clf()
 
-mask = adjacency_mask(shape=(shape[1], shape[2]), mask_type="orthogonal")
+
+
+# precision_before = np.load('../mnist/precision_matrix_before_NCE.npy')
+
+mask = adjacency_mask(shape=(shape[1], shape[2]), mask_type=mask_type)
 
 params_after_training = Params(
     (shape[1], shape[2]),
@@ -78,15 +136,22 @@ slide_samples = np.reshape(slide_samples, (3, shape[1], shape[2]))
 samples = np.real(params_after_training.generate_samples(3, slide_samples=False))
 samples = np.reshape(samples, (3, shape[1], shape[2]))
 
-for img in samples:
+for ind, img in enumerate(samples):
     plt.imshow(img)
-    plt.title('Sample form multivariate normal\n with mu=mean(pixel_val)')
-    plt.show()
+    plt.title('Sample form multivariate normal\n with $\mu$=mean(pixel_val)')
+    plt.colorbar()
+    tpl.save(base_path+"sample_"+str(ind)+"_using_multivariate_normal_with_mu_pixel_val_for_nce_"+str(NCE)+"_with_"+mask_type+"mask.tex")
+    #plt.show()
+    plt.clf()
 
-for img in slide_samples:
+for ind, img in enumerate(slide_samples):
     plt.imshow(img)
-    plt.title('Sample from mu + \sqrt{\lambda^{-1}}*eps, eps sampled from N(0,1)\n with mu=mean(pixel_val)')
-    plt.show()
+    plt.title("Sample from $mu + \sqrt{\Lambda^{-1}}\vareps$, $\vareps \sim N(0,1)$\n with $\mu$=mean(pixel_val)")
+    plt.colorbar()
+    tpl.save(base_path+"sample_" + str(ind) + "_using_slide_sampling_with_mu_pixel_val_for_nce_" + str(
+        NCE) + "_with_" + mask_type + "_mask.tex")
+    #plt.show()
+    plt.clf()
 
 params_after_training = Params(
     (shape[1], shape[2]),
@@ -102,12 +167,20 @@ slide_samples = np.reshape(slide_samples, (3, shape[1], shape[2]))
 samples = np.real(params_after_training.generate_samples(3, slide_samples=False))
 samples = np.reshape(samples, (3, shape[1], shape[2]))
 
-for img in samples:
+for ind, img in enumerate(samples):
     plt.imshow(img)
-    plt.title('Sample form multivariate normal\n with mu=0')
-    plt.show()
+    plt.title('Sample form multivariate normal\n with $\mu$=0')
+    plt.colorbar()
+    tpl.save(base_path+"sample_" + str(ind) + "_using_multivariate_normal_with_mu_0_for_nce_" + str(
+        NCE) + "_with_" + mask_type + "_mask.tex")
+    #plt.show()
+    plt.clf()
 
-for img in slide_samples:
+for ind, img in enumerate(slide_samples):
     plt.imshow(img)
-    plt.title('Sample from mu + \sqrt{\lambda^{-1}}*eps, eps sampled from N(0,1)\n with mu=0')
-    plt.show()
+    plt.title("Sample from $mu + \sqrt{\Lambda^{-1}}\vareps$, $\vareps \sim N(0,1)$\n with $\mu$=0")
+    plt.colorbar()
+    tpl.save(base_path+"sample_" + str(ind) + "_using_slide_sampling_with_mu_0_for_nce_" + str(
+        NCE) + "_with_" + mask_type + "_mask.tex")
+    #plt.show()
+    plt.clf()

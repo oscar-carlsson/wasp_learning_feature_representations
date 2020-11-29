@@ -6,6 +6,7 @@ venv/
 # Data files
 *ubyte
 mnist/
+dataset/
 
 # Tex auxiliary files
 *.aux

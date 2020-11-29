@@ -4,7 +4,7 @@ import os
 import gzip
 import pickle
 import sys
-
+from create_image_patches import flickr30k_image_patches
 
 def get_mnist(use_keras=False):
 
@@ -124,6 +124,21 @@ def get_s2_mnist(filename="s2_mnist.gz"):
     print("Done.")
 
     return dataset
+
+def get_flickr30k():
+    base_path = "/home/oscar/gitWorkspaces/wasp_learning_feature_representations_module_1/Module1/Exercise2/dataset/"
+    if os.path.isfile(base_path+"flickr30k.gz"):
+        with gzip.open(base_path+"flickr30k.gz", "rb") as f:
+            data_dict = pickle.load(f)
+        print("Done.")
+        return data_dict
+
+    flickr30k_image_patches()
+
+    with gzip.open(base_path+"flickr30k.gz", "rb") as f:
+        data_dict = pickle.load(f)
+    print("Done.")
+    return data_dict
 
 
 # Local Variables:
