@@ -1,0 +1,24 @@
+% This file was created by tikzplotlib v0.9.6.
+\begin{tikzpicture}
+
+\begin{axis}[
+colorbar,
+colorbar style={ytick={-2000,0,2000,4000,6000,8000},yticklabels={−2000,0,2000,4000,6000,8000},ylabel={}},
+colormap/viridis,
+point meta max=9782.82080489128,
+point meta min=-2226.78616355328,
+tick align=outside,
+tick pos=left,
+title={Empirical precision matrix minus trained precision matrix for MNIST with mask eight\_neighbours},
+x grid style={white!69.0196078431373!black},
+xmin=-0.5, xmax=783.5,
+xtick style={color=black},
+y dir=reverse,
+y grid style={white!69.0196078431373!black},
+ymin=-0.5, ymax=783.5,
+ytick style={color=black}
+]
+\addplot graphics [includegraphics cmd=\pgfimage,xmin=-0.5, xmax=783.5, ymin=783.5, ymax=-0.5] {empirical_precision_matrix_minus_trained_for_mnist_mask_eight_neighbours_nce_False-000.png};
+\end{axis}
+
+\end{tikzpicture}
