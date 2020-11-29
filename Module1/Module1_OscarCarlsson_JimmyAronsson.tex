@@ -1,5 +1,7 @@
 \documentclass[a4paper]{article}
 
+ \usepackage{fontenc}
+
 \usepackage[english]{babel}
 \usepackage[utf8]{inputenc}
 \usepackage{amsmath, amsthm}
@@ -23,6 +25,8 @@
 \usepackage{parskip}
 \usepackage{lipsum}
 \usepackage{pgfplots}
+\usepackage{caption}
+\usepackage{subcaption}
 
 \theoremstyle{definition}
 \newtheorem{definition}{Definition}
@@ -70,29 +74,45 @@ Two different methods have been used to estimate the precision matrix:
 \item Noise-contrastive estimation (NCE), and
 \item Score matching (SM).
 \end{itemize}
-Seeing as the underlying ideas and general analysis of these methods have already been discussed by Christopher Zach in his \texttt{presentation\_part1}, we only discuss those additional details which are of relevance to us.
+Seeing as the underlying ideas and general analysis of these methods have already been discussed by Christopher Zach in his \texttt{presentation\_part1}, we shall gloss over the introductions and focus on those additional, important details which are not featured in the presentation.
+
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise1/Figures/empirical_precision_matrix_minus_trained_for_mnist}
+		\caption{}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise1/Figures/last_70_elements_of_empirical_precision_matrix}
+		\caption{}
+	\end{subfigure}
+	\caption{Empirical precision matrix for MNIST}
+\end{figure}
+
 
 \subsection*{NCE}
 
 As explained in the presentation by Zach, noise-contrastive estimation (NCE) casts the estimation of distribution parameters as a supervised learning problem. This effectively means teaching the model distribution $p_\theta$ to distinguish between real data $x \sim p_d$ and noise data $x' \sim p_n$, where the noise distribution should be similar enough to the data distribution for this classification problem to be challenging; we want the model distribution $p_\theta$ to learn  the most essential properties of $p_d$.
 
-After choosing a suitable noise distribution $p_n$, we construct a data set $\{(z_i,x_i)\}$ by flipping a weighted coin $z \sim \text{Bern}(\eta)$ multiple times, $z_1,z_2,z_3,\ldots$, and letting each result $z_i \in \{0,1\}$ decide whether to sample $x_i$ from the data distribution ($z_i = 1$) or from the noise distribution ($z_i = 0$).
+After choosing a suitable noise distribution $p_n$, we construct a data set by flipping a weighted coin $z \sim \text{Bern}(1-\eta)$ multiple times and letting each result $z_i \in \{0,1\}$ decide whether to sample $x_i$ from the data distribution ($z_i = 1$) or from the noise distribution ($z_i = 0$). Denote the resulting training examples by $x_1,\ldots,x_N$ and noise samples by $x_1',\ldots,x_M'$, so that $M+N$ is the total number of coin flips. In NCE, we wish to use these samples to minimize the loss function
 
 \begin{equation}\label{J_function}
-J(\theta) \propto \mathbb{E}_{x \sim p_d} \left[ \log \frac{p_\theta(x)}{p_\theta(x) + \nu p_n(x)}\right] + \nu \mathbb{E}_{x \sim p_n} \left[ \log \frac{ \nu p_n(x)}{p_\theta(x) + \nu p_n(x)}\right].
+J(\theta) \propto \mathbb{E}_{x \sim p_d} \left[ \log \frac{p_\theta(x)}{p_\theta(x) + \nu p_n(x)}\right] + \nu \mathbb{E}_{x \sim p_n} \left[ \log \frac{ \nu p_n(x)}{p_\theta(x) + \nu p_n(x)}\right],
 \end{equation}
 
 
-We approximate the right-hand side of equation \eqref{J_function} using the empirical estimate
+where $\eta = \frac{1}{1+\nu}$. We approximate the right-hand side of equation \eqref{J_function} using the empirical estimate
 $$\frac{1}{N} \sum_{i=1}^N \log \frac{p_\theta(x_i)}{p_\theta(x_i) + \nu p_n(x_i)} + \frac{\nu}{M} \sum_{j=1}^M \log\frac{\nu p_n(x_j')}{p_\theta(x_j') + \nu p_n(x_j')},$$
-where $x_i \sim p_d$ are training examples and $x_j' \sim p_n$ are drawn from the noise distribution. Next, we simplify the above expression above by rewriting both terms in the following way:
+which we simplify by rewriting both terms in the following way:
 \begin{alignat*}{1}
 \log \frac{p_\theta(x)}{p_\theta(x) + \nu p_n(x)} &= -\log\left( 1 + \nu \frac{p_n(x)}{p_\theta(x)}\right),\\
-\log \frac{\nu p_n(x)}{p_\theta(x) + \nu p_n(x)} &= - \log \left( 1 + \frac{1}{\nu} \frac{p_\theta(x)}{p_n(x)} \right),
+\log \frac{\nu p_n(x)}{p_\theta(x) + \nu p_n(x)} &= - \log \left( 1 + \frac{1}{\nu} \frac{p_\theta(x)}{p_n(x)} \right).
 \end{alignat*}
-and then insert the relative probability
+If we now insert the relative probability
 $$w(x) = \frac{p_n(x)}{p_\theta(x)}  = \sqrt{\frac{|\Lambda_n|}{|\Lambda_\theta|}} \exp\left( -\frac{1}{2} x^T \left( \Lambda_n - \Lambda_\theta\right) x\right),$$
-to obtain the relatively simple expression
+then we obtain the relatively simple expression
 \begin{equation}\label{J_function2}
 J(\theta) \appropto -\frac{1}{N} \sum_{i=1}^N \log\left( \nu w(x_i) + 1\right) -\frac{\nu}{M} \sum_{j=1}^M \log\left(\frac {1}{\nu w(x_j')} + 1\right).
 \end{equation}
@@ -122,27 +142,167 @@ J(\mu,\Lambda_\theta) &= \int \frac{1}{2} \|\nabla_x \log p_\theta(x)\|^2 + \Del
 \end{alignat*}
 and start training. Gradients were again computed with \texttt{tf.GradientTape}, and the symmetry and neighbourhood structure was enforced in the same way as for NCE.
 
+To get a better idea of how well our learned distribution $p_\theta$ approximates the data distribution $p_d$, we have created synthetic images in two different ways: (1) Sampling straight from a multivariate Gaussian $\mathcal{N}(\bar\mu,\Sigma_\theta)$ using the empirical mean $\bar\mu$ and the learned covariance matrix $\Sigma_\theta = \Lambda_\theta^{-1}$. (2) Following the instructions in the assignment by setting
+$$x \leftarrow \bar\mu + \Sigma_\theta^{1/2}\varepsilon,$$
+where $\varepsilon \sim \mathcal{N}(\mathbf{0},\mathbf{I})$. Combined with the choice of 4-/8-connected structure, this makes 4 different kinds of samples, which are shown in Figures \ref{samples_SM_fig1}-\ref{samples_SM_fig4}. An immediate observation is that 8-connected structure seems to produce better samples, which is reasonable considering it is more general than 4-connected structure and can better approximate the data distribution. That being said, while many samples contain digit-like shapes, they do not resemble  MNIST images.
+
+Figures \ref{precision_matrix_SM_fig1}-\ref{precision_matrix_SM_fig2} show the learned precision matrix in the cases of 4-/8-connected structure, and finally, Figure \ref{loss_SM_fig} illustrates the loss in both cases.
+
+
+%-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+% Removed samples with mu = 0 to lower the total number of figures.
+\begin{comment}
 \begin{figure}[H]
-\centering
-\begin{tikzpicture}[scale=0.8]
-\begin{axis}[
-tick align=outside,
-tick pos=left,
-x grid style={white!69.0196078431373!black},
-xmin=-0.5, xmax=9.5,
-xtick style={color=black},
-y dir=reverse,
-y grid style={white!69.0196078431373!black},
-ymin=-0.5, ymax=9.5,
-ytick style={color=black}
-]
-\addplot graphics [includegraphics cmd=\pgfimage,xmin=-0.5, xmax=9.5, ymin=9.5, ymax=-0.5] {test-000.png};
-\end{axis}
-\end{tikzpicture}
-\caption{Test image and caption}
+	\centering
+	\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_0_using_multivariate_normal_with_mu_0_for_nce_False_with_orthogonal_mask}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_1_using_multivariate_normal_with_mu_0_for_nce_False_with_orthogonal_mask}
+	\end{subfigure}
+	\hfill
+		\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_2_using_multivariate_normal_with_mu_0_for_nce_False_with_orthogonal_mask}
+	\end{subfigure}
+	\caption{Samples drawn from $\mathcal{N}(\mathbf{0},\Sigma_\theta)$ with 4-connected precision matrix (SM).}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_0_using_multivariate_normal_with_mu_0_for_nce_False_with_eight_neighbours_mask}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_1_using_multivariate_normal_with_mu_0_for_nce_False_with_eight_neighbours_mask}
+	\end{subfigure}
+	\hfill
+		\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_2_using_multivariate_normal_with_mu_0_for_nce_False_with_eight_neighbours_mask}
+	\end{subfigure}
+	\caption{Samples drawn from $\mathcal{N}(\mathbf{0},\Sigma_\theta)$ with 8-connected precision matrix (SM).}
+\end{figure}
+\end{comment}
+%-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_0_using_multivariate_normal_with_mu_pixel_val_for_nce_False_with_orthogonalmask}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_1_using_multivariate_normal_with_mu_pixel_val_for_nce_False_with_orthogonalmask}
+	\end{subfigure}
+	\hfill
+		\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_2_using_multivariate_normal_with_mu_pixel_val_for_nce_False_with_orthogonalmask}
+	\end{subfigure}
+	\caption{Samples drawn from $\mathcal{N}(\bar\mu,\Sigma_\theta)$ with 4-connected precision matrix (SM).}
+	\label{samples_SM_fig1}
 \end{figure}
 
 
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_0_using_multivariate_normal_with_mu_pixel_val_for_nce_False_with_eight_neighboursmask}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_1_using_multivariate_normal_with_mu_pixel_val_for_nce_False_with_eight_neighboursmask}
+	\end{subfigure}
+	\hfill
+		\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_2_using_multivariate_normal_with_mu_pixel_val_for_nce_False_with_eight_neighboursmask}
+	\end{subfigure}
+	\caption{Samples drawn from $\mathcal{N}(\bar\mu,\Sigma_\theta)$ with 8-connected precision matrix (SM).}
+	\label{samples_SM_fig2}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_0_using_slide_sampling_with_mu_pixel_val_for_nce_False_with_orthogonal_mask}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_1_using_slide_sampling_with_mu_pixel_val_for_nce_False_with_orthogonal_mask}
+	\end{subfigure}
+	\hfill
+		\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_2_using_slide_sampling_with_mu_pixel_val_for_nce_False_with_orthogonal_mask}
+	\end{subfigure}
+	\caption{Samples $x \leftarrow \bar\mu + \Sigma_\theta^{1/2}\varepsilon$ with $\varepsilon \sim \mathcal{N}(\mathbf{0},\mathbf{I})$ and 4-connected precision matrix (SM).}
+	\label{samples_SM_fig3}
+\end{figure}
+
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_0_using_slide_sampling_with_mu_pixel_val_for_nce_False_with_eight_neighbours_mask}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_1_using_slide_sampling_with_mu_pixel_val_for_nce_False_with_eight_neighbours_mask}
+	\end{subfigure}
+	\hfill
+		\begin{subfigure}[b]{0.3\textwidth}
+		\include{Exercise1/Figures/sample_2_using_slide_sampling_with_mu_pixel_val_for_nce_False_with_eight_neighbours_mask}
+	\end{subfigure}
+	\caption{Samples $x \leftarrow \bar\mu + \Sigma_\theta^{1/2}\varepsilon$ with $\varepsilon \sim \mathcal{N}(\mathbf{0},\mathbf{I})$ and 8-connected precision matrix (SM).}
+	\label{samples_SM_fig4}
+\end{figure}
+
+
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise1/Figures/Precision_matrix_after_training_for_NCE_False_with_orthogonal_mask}
+		\caption{}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise1/Figures/Last_70_elements_Precision_matrix_after_training_for_NCE_False_with_orthogonal_mask}
+		\caption{}
+	\end{subfigure}
+	\caption{Learned precision matrix $\Lambda_\theta$ using SM, with 4-connected neighbourhood structure.}
+	\label{precision_matrix_SM_fig1}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise1/Figures/Precision_matrix_after_training_for_NCE_False_with_eight_neighbours_mask}
+		\caption{}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise1/Figures/Last_70_elements_Precision_matrix_after_training_for_NCE_False_with_eight_neighbours_mask}
+		\caption{}
+	\end{subfigure}
+	\caption{Learned precision matrix $\Lambda_\theta$ using SM, with 8-connected neighbourhood structure.}
+	\label{precision_matrix_SM_fig2}
+\end{figure}
+
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise1/Figures/Loss_for_NCE_False_with_orthogonal_mask}
+		\caption{4-connected}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise1/Figures/Loss_for_NCE_False_with_eight_neighbours_mask}
+		\caption{8-connected}
+	\end{subfigure}
+	\caption{Loss (SM)}
+	\label{loss_SM_fig}
+\end{figure}
 
 
 

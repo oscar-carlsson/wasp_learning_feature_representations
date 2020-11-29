@@ -2,24 +2,24 @@
 \begin{tikzpicture}
 
 \begin{axis}[
-colorbar,
-colorbar style={ylabel={}},
-colormap/viridis,
+%colorbar,
+%colorbar style={ylabel={}},
+%colormap/viridis,
 point meta max=0.838117718696594,
 point meta min=-1.05557215213776,
 tick align=outside,
 tick pos=left,
-title={Sample form multivariate normal
- with \(\displaystyle \mu\)=0},
+title={},
 x grid style={white!69.0196078431373!black},
 xmin=-0.5, xmax=27.5,
 xtick style={color=black},
 y dir=reverse,
 y grid style={white!69.0196078431373!black},
 ymin=-0.5, ymax=27.5,
-ytick style={color=black}
+ytick style={color=black},
+scale=0.5
 ]
-\addplot graphics [includegraphics cmd=\pgfimage,xmin=-0.5, xmax=27.5, ymin=27.5, ymax=-0.5] {sample_2_using_multivariate_normal_with_mu_0_for_nce_False_with_orthogonal_mask-000.png};
+\addplot graphics [includegraphics cmd=\pgfimage,xmin=-0.5, xmax=27.5, ymin=27.5, ymax=-0.5] {Exercise1/Figures/sample_2_using_multivariate_normal_with_mu_0_for_nce_False_with_orthogonal_mask-000.png};
 \end{axis}
 
 \end{tikzpicture}

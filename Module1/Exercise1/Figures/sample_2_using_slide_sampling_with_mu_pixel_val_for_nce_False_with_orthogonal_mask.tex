@@ -2,24 +2,24 @@
 \begin{tikzpicture}
 
 \begin{axis}[
-colorbar,
-colorbar style={ylabel={}},
-colormap/viridis,
+%colorbar,
+%colorbar style={ylabel={}},
+%colormap/viridis,
 point meta max=0.992935001226387,
 point meta min=-0.245709219318363,
 tick align=outside,
 tick pos=left,
-title={Sample from \(\displaystyle mu + \sqrt{\Lambda^{-1}}areps\), \(\displaystyle areps \sim N(0,1)\)
- with \(\displaystyle \mu\)=mean(pixel\_val)},
+title={},
 x grid style={white!69.0196078431373!black},
 xmin=-0.5, xmax=27.5,
 xtick style={color=black},
 y dir=reverse,
 y grid style={white!69.0196078431373!black},
 ymin=-0.5, ymax=27.5,
-ytick style={color=black}
+ytick style={color=black},
+scale=0.5
 ]
-\addplot graphics [includegraphics cmd=\pgfimage,xmin=-0.5, xmax=27.5, ymin=27.5, ymax=-0.5] {sample_2_using_slide_sampling_with_mu_pixel_val_for_nce_False_with_orthogonal_mask-000.png};
+\addplot graphics [includegraphics cmd=\pgfimage,xmin=-0.5, xmax=27.5, ymin=27.5, ymax=-0.5] {Exercise1/Figures/sample_2_using_slide_sampling_with_mu_pixel_val_for_nce_False_with_orthogonal_mask-000.png};
 \end{axis}
 
 \end{tikzpicture}
