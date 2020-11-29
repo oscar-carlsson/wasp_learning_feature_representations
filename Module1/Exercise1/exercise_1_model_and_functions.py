@@ -21,6 +21,10 @@ class GaussianModel(tf.keras.layers.Layer):
         self.precision_matrix = par.precision_matrix
 
         self.dim = np.prod(shape)
+        self.det_correction=1
+
+        self.num_nan_grads = 0
+        self.num_non_nan_grads = 0
 
     def __call__(self, data):
         y_halfway = tf.einsum("ij,kj->ki", self.precision_matrix, data)
@@ -66,10 +70,12 @@ class GaussianModel(tf.keras.layers.Layer):
     ):
         weights = tf.sqrt(
             tf.math.abs(
-                det_noise_precision_matrix / tf.linalg.det(self.precision_matrix)
+                det_noise_precision_matrix / tf.linalg.det(self.precision_matrix/self.det_correction)
             )
         ) * tf.exp(
-            tf.einsum(
+            -1
+            / 2
+            * tf.einsum(
                 "ki,ki->k",
                 data,
                 tf.einsum(
@@ -80,13 +86,18 @@ class GaussianModel(tf.keras.layers.Layer):
         return weights
 
     def NCE_real_data_terms(
-        self, real_data, nu, det_noise_precision_matrix, noise_precision_matrix, tf_function
+        self,
+        real_data,
+        nu,
+        det_noise_precision_matrix,
+        noise_precision_matrix,
+        tf_function,
     ):
         real_weights = self.data_point_weights(
             real_data, det_noise_precision_matrix, noise_precision_matrix
         )
         if tf_function:
-            N = tf.shape(real_data,out_type=tf.float64)[0]
+            N = tf.shape(real_data, out_type=tf.float64)[0]
         else:
             N = tf.shape(real_data)[0]
 
@@ -94,10 +105,15 @@ class GaussianModel(tf.keras.layers.Layer):
         return term_3
 
     def NCE_noise_data_terms(
-        self, noise_data, nu, det_noise_precision_matrix, noise_precision_matrix, tf_function
+        self,
+        noise_data,
+        nu,
+        det_noise_precision_matrix,
+        noise_precision_matrix,
+        tf_function,
     ):
         if tf_function:
-            M = tf.shape(noise_data,out_type=tf.float64)[0]
+            M = tf.shape(noise_data, out_type=tf.float64)[0]
         else:
             M = tf.shape(noise_data).numpy()[0]
 
@@ -105,27 +121,23 @@ class GaussianModel(tf.keras.layers.Layer):
             noise_data, det_noise_precision_matrix, noise_precision_matrix
         )
 
-
-
-        '''# Old stuff 
-        term_1 = (
-            tmp_cnst
-            * (
+        # return nu / M * tf.reduce_sum(tf.math.log(nu*noise_weights/(nu*noise_weights+1)))
+        # return nu / M * tf.reduce_sum(-tf.math.log(nu + 1/noise_weights))
+        return nu / (2 * M) * tf.reduce_sum(
+            tf.einsum(
+                "ki,ki->k",
+                noise_data,
                 tf.einsum(
-                    "ki,ki",
+                    "ij,kj->ki",
+                    noise_precision_matrix - self.precision_matrix,
                     noise_data,
-                    tf.einsum(
-                        "ij,kj->ki",
-                        noise_precision_matrix - self.precision_matrix,
-                        noise_data,
-                    ),
-                )
+                ),
+            )
+        ) - nu / 2 * tf.math.log(
+            nu**2 * tf.math.abs(
+                det_noise_precision_matrix / tf.linalg.det(self.precision_matrix/self.det_correction)
             )
         )
-        term_4 = -nu / M * tf.reduce_sum(tf.math.log(nu * noise_weights + 1))
-        return term_1 + term_4'''
-
-        return nu / M * tf.reduce_sum(tf.math.log(nu*noise_weights/(nu*noise_weights+1)))
 
     def NCE_precision_matrix_term(self, nu, det_noise_precision_matrix):
         term_2 = (
@@ -143,7 +155,7 @@ class GaussianModel(tf.keras.layers.Layer):
 
     def NCE_zero(self, tf_function):
         if tf_function:
-            return tf.constant(0,dtype=tf.float64)
+            return tf.constant(0, dtype=tf.float64)
         else:
             return 0
 
@@ -155,19 +167,27 @@ class GaussianModel(tf.keras.layers.Layer):
         noise_precision_matrix,
         nu,
     ):
-        tf_function=True
+        tf_function = True
         loss = 0
         loss = loss + tf.cond(
             tf.shape(real_data)[0] != 0,
             lambda: self.NCE_real_data_terms(
-                real_data, det_noise_precision_matrix, noise_precision_matrix, tf_function
+                real_data,
+                nu,
+                det_noise_precision_matrix,
+                noise_precision_matrix,
+                tf_function,
             ),
             lambda: self.NCE_zero(tf_function),
         )
         loss = loss + tf.cond(
             tf.shape(noise_data)[0] != 0,
             lambda: self.NCE_noise_data_terms(
-                noise_data, nu, det_noise_precision_matrix, noise_precision_matrix, tf_function
+                noise_data,
+                nu,
+                det_noise_precision_matrix,
+                noise_precision_matrix,
+                tf_function,
             ),
             lambda: self.NCE_zero(tf_function),
         )
@@ -176,35 +196,44 @@ class GaussianModel(tf.keras.layers.Layer):
         return loss
 
     def NCE(
-            self,
-            real_data,
-            noise_data,
-            det_noise_precision_matrix,
-            noise_precision_matrix,
-            nu,
+        self,
+        real_data,
+        noise_data,
+        det_noise_precision_matrix,
+        noise_precision_matrix,
+        nu,
     ):
         tf_function = False
         loss = 0
         loss = loss + tf.cond(
             tf.shape(real_data)[0] != 0,
             lambda: self.NCE_real_data_terms(
-                real_data, nu, det_noise_precision_matrix, noise_precision_matrix, tf_function
+                real_data,
+                nu,
+                det_noise_precision_matrix,
+                noise_precision_matrix,
+                tf_function,
             ),
             lambda: self.NCE_zero(tf_function),
         )
         loss = loss + tf.cond(
             tf.shape(noise_data)[0] != 0,
             lambda: self.NCE_noise_data_terms(
-                noise_data, nu, det_noise_precision_matrix, noise_precision_matrix, tf_function
+                noise_data,
+                nu,
+                det_noise_precision_matrix,
+                noise_precision_matrix,
+                tf_function,
             ),
             lambda: self.NCE_zero(tf_function),
         )
-        #loss = loss + self.NCE_precision_matrix_term(nu, det_noise_precision_matrix)
+        # loss = loss + self.NCE_precision_matrix_term(nu, det_noise_precision_matrix)
 
         return loss
 
+
 class Params:
-    def __init__(self, shape, mask, loc=None, precision_matrix=None, only_ones=False):
+    def __init__(self, shape, mask=None, loc=None, precision_matrix=None, only_ones=False):
         rows = shape[0]
         cols = shape[1]
         self.dim = rows * cols
@@ -219,15 +248,18 @@ class Params:
                     np.ones((self.dim, self.dim)) * mask, dtype=tf.float64
                 )
             else:
-                arr = tf.math.abs(
+                '''arr = tf.math.abs(
                     tf.random.uniform((self.dim, self.dim), 0.1, 1, dtype=tf.float64)
-                )
+                )'''
+                arr = tf.random.normal((self.dim, self.dim), 0, 3.5e2, dtype=tf.float64)
 
                 tmp = tf.Variable(make_symmetric(arr, mask=mask))
 
             self.precision_matrix = tmp
         else:
             self.precision_matrix = precision_matrix
+            if mask is not None:
+                self.precision_matrix = self.precision_matrix*mask
 
     def get_distribution(self):
         tfp.distributions.MultivariateNormalFullCovariance(

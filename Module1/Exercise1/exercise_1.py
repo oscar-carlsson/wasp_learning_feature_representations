@@ -46,6 +46,7 @@ def train_step_nce_tf_function(
     optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
     return loss, grads
 
+
 def train_step_nce(
     real_data,
     noise_data,
@@ -65,17 +66,20 @@ def train_step_nce(
     grads = make_symmetric(tape.gradient(loss, model.precision_matrix), mask=model.mask)
     if not np.isnan(grads.numpy()).any():
         optimizer.apply_gradients(zip([grads], [model.precision_matrix]))
+        model.num_non_nan_grads += 1
     else:
-        print("Nan grads!!")
+        model.num_nan_grads += 1
+        # print("Nan grads!!")
     return loss, grads
 
+
 learning_rate = 0.001
-eta = 0.75  # Probability that sample is real and not noise
+eta = 0.5  # Probability that sample is real and not noise
 nu = 1 / eta - 1
-batch_size = 10
-mask_type = "eight_neighbours"
+batch_size = 100
+mask_type = "orthogonal"
 epochs = 3
-max_epoch=100
+max_epoch = 100
 NCE = False
 tf_function = False
 saving = True
@@ -107,12 +111,27 @@ train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size=batch_s
 
 mask = adjacency_mask(shape=(shape[1], shape[2]), mask_type=mask_type)
 
+
+empirical_cov = 1 / (shape[0] - 1) * tf.einsum("ki,kj->ij", train_images, train_images)
+empirical_prec = tf.linalg.inv(empirical_cov)
+
+np.save("empirical_precision_matrix.npy", empirical_prec)
+
+noise_params = Params(
+    (shape[1], shape[2]), precision_matrix=empirical_prec, mask=mask, only_ones=False
+)
+det_correction = 465
+det_noise_precision_matrix = tf.linalg.det(
+    noise_params.precision_matrix / det_correction
+)
+
 params = Params((shape[1], shape[2]), mask=mask, only_ones=False)
 model = GaussianModel((shape[1], shape[2]), mask=mask, params=params)
 
-noise_params = Params((shape[1], shape[2]), mask=mask, only_ones=False)
-det_noise_precision_matrix = tf.linalg.det(noise_params.precision_matrix)
+model.det_correction = det_correction
 noise_precision_matrix = noise_params.precision_matrix
+
+print(tf.linalg.det(model.precision_matrix / model.det_correction))
 
 loss_fcn = model.model_loss
 loss_fcn_NCE_tf_function = model.NCE_tf_function
@@ -130,9 +149,10 @@ widgets = [
 ]
 
 precision_matrix_before = model.precision_matrix.numpy()
+np.save("precision_matrix_before_mask_" + mask_type + ".npy", precision_matrix_before)
 
-plt.imshow(precision_matrix_before)
-plt.show()
+"""plt.imshow(precision_matrix_before)
+plt.show()"""
 
 loss_epochs = []
 loss = []
@@ -149,6 +169,8 @@ while True:
     print("Start of epoch ", epoch + 1, "\n")
     bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
     loss_epoch = []
+    model.num_nan_grads = 0
+    model.num_non_nan_grads = 0
     for step, train_image_batch in enumerate(train_dataset):
         if NCE:
             train_image_batch = tf.Variable(train_image_batch)
@@ -165,7 +187,7 @@ while True:
             train_image_batch = tf.convert_to_tensor(tmp_real, dtype=tf.float64)
             noise_image_batch = tf.convert_to_tensor(tmp_noise, dtype=tf.float64)
             worked = True
-            step_loss=0
+            step_loss = 0
             try:
                 if tf_function:
                     step_loss, step_grads = train_step_nce_tf_function(
@@ -183,19 +205,20 @@ while True:
                         noise_precision_matrix,
                         nu,
                     )
-                #print("Step ", step, ", step loss: ", step_loss)
+                # print("Step ", step, ", step loss: ", step_loss)
             except:
                 traceback.print_exc()
-                #print("train_image_batch shape: ", tf.shape(train_image_batch))
-                #print("noise_image_batch shape: ", tf.shape(noise_image_batch))
+                # print("train_image_batch shape: ", tf.shape(train_image_batch))
+                # print("noise_image_batch shape: ", tf.shape(noise_image_batch))
                 worked = False
                 pass
         else:
-            worked=True
+            worked = True
             try:
                 step_loss, step_grads = train_step(train_image_batch)
             except:
-                worked=False
+                traceback.print_exc()
+                worked = False
 
         if step > 1:
             last_precision_matrix = current_precision_matrix
@@ -212,6 +235,13 @@ while True:
         if (step % 100 == 0) and worked:
             grads.append(step_grads.numpy())
             loss_epoch.append(step_loss)
+
+        '''if step % 10 == 0:
+            print(
+                "Number of nan grads over {} steps is {}. Number of non-nan grads is {}".format(
+                    step, model.num_nan_grads, model.num_non_nan_grads
+                )
+            )'''
         bar.update(step)
 
     loss_epochs.append(loss_epoch)
@@ -222,12 +252,24 @@ while True:
     if saving:
 
         prec_name = (
-            "precision_matrix_NCE_" + str(NCE) + "_mask_" + mask_type + "_epoch_" + str(epoch + 1) + ".npy"
+            "precision_matrix_NCE_"
+            + str(NCE)
+            + "_mask_"
+            + mask_type
+            + "_epoch_"
+            + str(epoch + 1)
+            + ".npy"
         )
         np.save(prec_name, model.precision_matrix.numpy())
 
         loss_name = (
-            "loss_for_each_step_NCE_" + str(NCE) + "_mask_" + mask_type + "_epoch_" + str(epoch + 1) + ".npy"
+            "loss_for_each_step_NCE_"
+            + str(NCE)
+            + "_mask_"
+            + mask_type
+            + "_epoch_"
+            + str(epoch + 1)
+            + ".npy"
         )
         np.save(loss_name, loss_epoch)
 
@@ -282,8 +324,7 @@ plt.imshow(covariance_matrix_after)
 plt.show()"""
 
 np.save("gradients.npy", grads)
-np.save("precision_matrix_before_mask_"+mask_type+".npy", precision_matrix_before)
-np.save("precision_matrix_after_mask_"+mask_type+".npy", precision_matrix_after)
+np.save("precision_matrix_after_mask_" + mask_type + ".npy", precision_matrix_after)
 
 params_after_training = Params(
     (shape[1], shape[2]),
@@ -295,7 +336,10 @@ params_after_training = Params(
 slide_samples = np.real(params_after_training.generate_samples(3, slide_samples=True))
 slide_samples = np.reshape(slide_samples, (3, shape[1], shape[2]))
 
-np.save("generated_samples_NCE_" + str(NCE) + "_mask_"+mask_type+"_slide_method.npy", slide_samples)
+np.save(
+    "generated_samples_NCE_" + str(NCE) + "_mask_" + mask_type + "_slide_method.npy",
+    slide_samples,
+)
 
 """for img in slide_samples:
     plt.imshow(img)
@@ -304,7 +348,10 @@ np.save("generated_samples_NCE_" + str(NCE) + "_mask_"+mask_type+"_slide_method.
 samples = np.real(params_after_training.generate_samples(3, slide_samples=False))
 samples = np.reshape(samples, (3, shape[1], shape[2]))
 
-np.save("generated_samples_NCE_" + str(NCE) + "_mask_"+mask_type+"_gaussian_method.npy", slide_samples)
+np.save(
+    "generated_samples_NCE_" + str(NCE) + "_mask_" + mask_type + "_gaussian_method.npy",
+    slide_samples,
+)
 
 """for img in samples:
     plt.imshow(img)
