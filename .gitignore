@@ -7,6 +7,7 @@ venv/
 *ubyte
 mnist/
 dataset/
+saving_during_training/
 
 # Tex auxiliary files
 *.aux
