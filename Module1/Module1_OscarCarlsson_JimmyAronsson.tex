@@ -60,14 +60,23 @@ In this document, we summarize our work on the first Homework.
 
 \section*{\center Exercise 1}
 
-In the first exercise, we fit a multivariate Gaussian to MNIST patches'
+In this first exercise, we attempt to model the (unknown) distribution of MNIST images, $x \sim p_d$, and hopefully generate synthetic images that look realistic. More precisely, we remove the empirical mean $\mu$ from each training image and see whether the remaining noise $x - \mu$ can be modeled with a multivariate Gaussian distribution $\mathcal{N}(\mathbf{0},\Sigma_\theta)$ with learned precision matrix $\Lambda_\theta = \Sigma_\theta^{-1}$. Synthetic images could then be created by either sampling noise from the model distribution and adding back the empirical mean, 
+$$x' = \mu + \epsilon, \qquad \epsilon \sim \mathcal{N}(\mathbf{0},\Sigma_\theta),$$
+or by using the precision matrix directly:
+$$x' = \mu + A_\theta \epsilon, \qquad A_\theta = \Lambda_\theta^{-1/2}, \epsilon \sim \mathcal{N}(0,1/100).$$
 
-Noise distribution $\mathcal{N}(\mathbf{0},\Sigma_n)$
-Model distribution   $\mathcal{N}(\mathbf{0},\Sigma_\theta)$
+Two different methods have been used to estimate the precision matrix:
+\begin{itemize}
+\item Noise-contrastive estimation (NCE), and
+\item Score matching (SM).
+\end{itemize}
+Seeing as the underlying ideas and general analysis of these methods have already been discussed by Christopher Zach in his \texttt{presentation\_part1}, we only discuss those additional details which are of relevance to us.
 
 \subsection*{NCE}
 
-\lipsum[2] 
+As explained in the presentation by Zach, noise-contrastive estimation (NCE) casts the estimation of distribution parameters as a supervised learning problem. This effectively means teaching the model distribution $p_\theta$ to distinguish between real data $x \sim p_d$ and noise data $x' \sim p_n$, where the noise distribution should be similar enough to the data distribution for this classification problem to be challenging; we want the model distribution $p_\theta$ to learn  the most essential properties of $p_d$.
+
+After choosing a suitable noise distribution $p_n$, we construct a data set $\{(z_i,x_i)\}$ by flipping a weighted coin $z \sim \text{Bern}(\eta)$ multiple times, $z_1,z_2,z_3,\ldots$, and letting each result $z_i \in \{0,1\}$ decide whether to sample $x_i$ from the data distribution ($z_i = 1$) or from the noise distribution ($z_i = 0$).
 
 \begin{equation}\label{J_function}
 J(\theta) \propto \mathbb{E}_{x \sim p_d} \left[ \log \frac{p_\theta(x)}{p_\theta(x) + \nu p_n(x)}\right] + \nu \mathbb{E}_{x \sim p_n} \left[ \log \frac{ \nu p_n(x)}{p_\theta(x) + \nu p_n(x)}\right].
