@@ -14,22 +14,30 @@ import matplotlib.pyplot as plt
 
 
 class DEM(tf.keras.layers.Layer):
-    def __init__(self, shape, mask_type="orthogonal"):
+    def __init__(self, shape, sigma=1, param_dict=None):
         super(DEM, self).__init__()
-        par = Params(shape)
-        # Dense layers replace the parameters V, W, c
-        self.b = par.b  # Bias vector
-        self.K1 = par.K1  # Channels in dense layer 1
-        self.K2 = par.K2  # Channels in dense layer 2
-        self.sigma = par.sigma  # sigma in {1, 0.1}
-        self.c = par.c
-        self.V = par.V
-        self.W = par.W
-        # self.dense_layer_1 = tf.keras.layers.Dense(self.K1, activation='sigmoid', use_bias=False)  # s(Vx)
-        # self.dense_layer_2 = tf.keras.layers.Dense(self.K2, activation=None, use_bias=True)  # w^T x + c
+        if param_dict is None:
+            par = Params(shape, sigma=sigma)
+            # Dense layers replace the parameters V, W, c
+            self.b = par.b  # Bias vector
+            self.K1 = par.K1  # Channels in dense layer 1
+            self.K2 = par.K2  # Channels in dense layer 2
+            self.sigma = par.sigma  # sigma in {1, 0.1}
+            self.c = par.c
+            self.V = par.V
+            self.W = par.W
+            # self.dense_layer_1 = tf.keras.layers.Dense(self.K1, activation='sigmoid', use_bias=False)  # s(Vx)
+            # self.dense_layer_2 = tf.keras.layers.Dense(self.K2, activation=None, use_bias=True)  # w^T x + c
 
-        # Since we have expressions for both f_theta(x,z) and log p_theta(x),
-        # we probably need to extract the weight matrices and biases at some point.
+        else:
+            self.b = tf.Variable(param_dict['b'],dtype=tf.float64)
+            self.c = tf.Variable(param_dict['c'],dtype=tf.float64)
+            self.V = tf.Variable(param_dict['V'],dtype=tf.float64)
+            self.W = tf.Variable(param_dict['W'],dtype=tf.float64)
+            self.K1 = tf.shape(self.V)[0]
+            self.K2 = tf.shape(self.W)[0]
+            self.sigma = sigma
+
 
     """@property
     def V(self):
@@ -53,6 +61,10 @@ class DEM(tf.keras.layers.Layer):
     @property
     def trainable_variables(self):
         return [self.b, self.c, self.V, self.W]
+
+    @classmethod
+    def load_model(cls, param_dict, sigma=1):
+        return DEM((28,28),sigma=sigma,param_dict=param_dict)
 
     def dense_layer_1(self, data):
         """
@@ -112,7 +124,7 @@ class DEM(tf.keras.layers.Layer):
         return tf.cond(
             u <= 0,
             lambda: tf.math.log(1 + tf.exp(u)),
-            lambda: u + tf.math.log(1 + tf.exp(u)),
+            lambda: u + tf.math.log(1 + tf.exp(-u)),
         )
 
     def S_prime(self, u):
@@ -126,7 +138,9 @@ class DEM(tf.keras.layers.Layer):
 
     def s_aux(self, u):
         return tf.cond(
-            u <= 0, lambda: tf.exp(u) / (1 + tf.exp(u)), lambda: 1 / (1 + tf.exp(-u))
+            u <= 0,
+            lambda: tf.exp(u) / (1 + tf.exp(u)),
+            lambda: 1 / (1 + tf.exp(-u)),
         )
 
     def s_prime(self, u):
@@ -135,8 +149,8 @@ class DEM(tf.keras.layers.Layer):
     def s_prime_aux(self, u):
         return tf.cond(
             u <= 0,
-            lambda: 1 / (1 + tf.exp(u)) ** 2,
-            lambda: -tf.exp(-u) / (1 + tf.exp(-u)) ** 2,
+            lambda: tf.exp(u) / (1 + tf.exp(u)) ** 2,
+            lambda: tf.exp(-u) / (1 + tf.exp(-u)) ** 2,
         )
 
     def s_bis(self, u):
@@ -253,7 +267,7 @@ class DEM(tf.keras.layers.Layer):
             np.save(path + "trainable_parameters"+other+".npy", self.trainable_variables)
 
 class Params:
-    def __init__(self, shape):
+    def __init__(self, shape, sigma=1):
         rows = shape[0]
         cols = shape[1]
         dim = rows * cols
@@ -284,7 +298,7 @@ class Params:
             name="b",
         )
 
-        self.sigma = 1  # 0.1 # Hyperparameter
+        self.sigma = sigma  # 0.1 # Hyperparameter
 
 
 def whiten(data):
