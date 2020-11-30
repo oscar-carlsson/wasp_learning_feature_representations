@@ -82,7 +82,7 @@ As explained in the presentation by Zach, noise-contrastive estimation (NCE) cas
 
 For the noise distribution, we chose a multivariate Gaussian $\mathcal{N}(\mathbf{0},\Sigma_n)$ whose covariance matrix $\Sigma_n$ coincides with the empirical covariance matrix for the MNIST noise data.
 
-We then construct a data set by flipping a weighted coin $z \sim \text{Bern}(1-\eta)$ multiple times and letting each result $z_i \in \{0,1\}$ decide whether to sample $x_i$ from the data distribution ($z_i = 1$) or from the noise distribution ($z_i = 0$). Denote the resulting training examples by $x_1,\ldots,x_N$ and noise samples by $x_1',\ldots,x_M'$, so that $M+N$ is the total number of coin flips. In NCE, we wish to use these samples to minimize the loss function
+We then construct a data set by flipping a weighted coin $z \sim \text{Bern}(1-\eta)$ multiple times and letting each result $z_i \in \{0,1\}$ decide whether to sample $x_i$ from the data distribution ($z_i = 1$) or from the noise distribution ($z_i = 0$). The resulting training examples are denoted by $x_1,\ldots,x_N$ and the noise samples by $x_1',\ldots,x_M'$, so that $M+N$ is the total number of coin flips. In NCE, we use these samples to minimize the loss function
 
 \begin{equation}\label{J_function}
 J(\theta) \propto \mathbb{E}_{x \sim p_d} \left[ \log \frac{p_\theta(x)}{p_\theta(x) + \nu p_n(x)}\right] + \nu \mathbb{E}_{x \sim p_n} \left[ \log \frac{ \nu p_n(x)}{p_\theta(x) + \nu p_n(x)}\right],
@@ -108,15 +108,17 @@ We found that $w(x)$ is typically very small in practice, hence the sum $(\nu w)
 \end{alignat*}
 It would also be possible to remove the first sum in equation \eqref{J_function2}, since $\log(\nu w(x) + 1) \approx \log 1$. We decided to keep it, however, because it didn't cause computational problems and we didn't want our estimate to be independent of the real training data. Thus, our final estimate is
 $$\boxed{J(\theta) \appropto -\frac{\nu}{2}\log \left(\nu^2 \frac{|\Lambda_n|}{|\Lambda_\theta|}\right) -\frac{1}{N} \sum_{i=1}^N \log\left( \nu w(x_i) + 1\right) + \frac{\nu}{2M} \sum_{j=1}^M {x_j'}^T (\Lambda_n - \Lambda_\theta) x_j'}$$
-We also obtained an expression for the gradient $\nabla J(\theta)$ in terms of the precision matrix $\Lambda_\theta$, though we found this expression rather bulky and difficult to handle. Instead, we used \texttt{tf.GradientTape} to compute the gradient and update $\Lambda_\theta$.  Two approaches were considered for keeping $\Lambda_\theta$ positive definite and retaining its sparse 4-/8-connected neighbourhood-structure after each epoch:
+We also obtained an expression for the gradient $\nabla J(\theta)$ in terms of the precision matrix $\Lambda_\theta$, though we found this expression rather bulky and difficult to handle. Instead, we used \texttt{tf.GradientTape} to compute the gradient and update $\Lambda_\theta$.  Three approaches were considered to keep $\Lambda_\theta$ symmetric positive definite and retain its sparse 4-/8-connected structure after each epoch:
 \begin{enumerate}
 \item Writing the precision matrix as $\Lambda_\theta = (A_\theta ^T A_\theta) \cdot M$ for a learned matrix $A_\theta$ and a pre\-defined masking matrix $M \in \{0,1\}^{28\times 28}$ that is applied element-wise, enforcing the neighbourhood structure by killing undesired matrix elements.
 
-The matrix product $A_\theta^T A_\theta$ is guaranteed to be symmetric positive definite whenever $A_\theta$ is invertible, which any square matrix almost surely is. Combined with the fact that element-wise products of positive definite matrices is again positive definite, we hoped this would prove that $\Lambda_\theta$ is symmetric positive definite. Unfortunately, we eventually realized that our masking matrix is not positive definite, so we cannot guarantee that $\Lambda_\theta$ is, either. Learning $A_\theta$ also turned out to be slower than the approach below.
+The matrix product $A_\theta^T A_\theta$ is guaranteed to be symmetric positive definite whenever $A_\theta$ is invertible, which any square matrix almost surely is. Combined with the fact that element-wise products of positive definite matrices is again positive definite, we hoped this would prove that $\Lambda_\theta$ is symmetric positive definite. Unfortunately, we eventually realized that our masking matrix is not positive definite, so we cannot guarantee that $\Lambda_\theta$ is, either.
 
-\item Forcing a symmetric gradient by throwing away its lower triangular part and replacing it with the transpose of its upper triangular part. We then applied the previously mentioned masking matrix $M$ to force the neighbourhood structure on the gradient. This ensures that $\Lambda_\theta$ is symmetric and retains its neighbourhood structure for all epochs. On the other hand, we still cannot guarantee that $\Lambda_\theta$ remains positive definite.
+\item Forcing a symmetric gradient by throwing away its lower triangular part and replacing it with the transpose of its upper triangular part. We also apply the aforementioned masking matrix $M$ to force the neighbourhood structure on the gradient. This ensures that $\Lambda_\theta$ is symmetric and retains its neighbourhood structure for all epochs. On the other hand, we still cannot guarantee that $\Lambda_\theta$ remains positive definite.
+
+\item Using the eigendecomposition $\Lambda_\theta = U^T D U$ or, alternatively, $\Lambda_\theta = U^T D U \cdot M$, where the diagonal matrix $D$ contains the eigenvalues of $\Lambda_\theta$. This would produce a symmetric matrix that can be kept positive definite by changing the values of negative eigenvalues.
 \end{enumerate}
-We ended up choosing the latter approach.\footnote{We later realized $\Lambda_\theta$ can also be modeled through its eigendecomposition, which would make it easy to ensure positive (semi)definiteness by flipping the signs of negative eigenvalues. Due to time constraints and different priorities, however, we never implemented this approach.} However, as explained above, we encountered infinite gradients - a problem we were unable to solve. We suspect the problem is caused by $w(x)$ taking such extreme values, which is why we tried approximating the second logarithm in equation \eqref{J_function2} to avoid computing a large exponential, but to no avail. The extremity of $w(x)$ also causes the loss function to be essentially independent of the MNIST data - a serious problem on its own.
+None of these approaches worked well in practice. As explained above, we encountered infinite gradients - a problem we were unable to solve. We suspect the problem is caused by $w(x)$ taking such extreme values, which is why we tried approximating the second logarithm in equation \eqref{J_function2} to avoid computing a large exponential, but to no avail. The extremity of $w(x)$ also causes the loss function to be essentially independent of the MNIST data - a serious problem on its own.
 
 A natural solution to both of these problems seems to be: Improving the initialization of both precision matrices $\Lambda_\theta$ and $\Lambda_n$. We tried this, and we also tried scaling down both determinants $|\Lambda_\theta|$ and $|\Lambda_n|$ by the same constant factor to improve numeric stability, but the problem persisted.
 
@@ -131,10 +133,10 @@ When given the choice between cNCE and score matching, we figured the latter wou
 \begin{alignat*}{1}
 J(\mu,\Lambda_\theta) &= \int \frac{1}{2} \|\nabla_x \log p_\theta(x)\|^2 + \Delta \log p_\theta(x) \approx \frac{1}{2N} \sum_{i=1}^N \| \Lambda_\theta (x_i - \mu)\|^2 - \tr(\Lambda_\theta),
 \end{alignat*}
-and start training. Gradients were again computed with \texttt{tf.GradientTape}, and the symmetry and neighbourhood structure was enforced in the same way as for NCE.
+and start training. Gradients were again computed with \texttt{tf.GradientTape}, and the symmetry and neighbourhood structure was enforced by manipulating the gradient as in NCE approach 2.
 
-To get a better idea of how well our learned distribution $p_\theta$ approximates the data distribution $p_d$, we have created synthetic images in two different ways: (1) Sampling straight from a multivariate Gaussian $\mathcal{N}(\bar\mu,\Sigma_\theta)$ using the empirical mean $\bar\mu$ and the learned covariance matrix $\Sigma_\theta = \Lambda_\theta^{-1}$. (2) Following the instructions in the assignment by setting
-$$x \leftarrow \bar\mu + \Sigma_\theta^{1/2}\varepsilon,$$
+To get a better idea of how well our learned distribution $p_\theta$ approximates the data distribution $p_d$, we have created synthetic images in two different ways: (1) Sampling straight from a multivariate Gaussian $\mathcal{N}(\mu,\Sigma_\theta)$ using the empirical mean $\mu$ and the learned covariance matrix $\Sigma_\theta = \Lambda_\theta^{-1}$. (2) Following the instructions in the assignment by setting
+$$x \leftarrow \mu + \Sigma_\theta^{1/2}\varepsilon,$$
 where $\varepsilon \sim \mathcal{N}(\mathbf{0},\mathbf{I})$. Combined with the choice of 4-/8-connected structure, this makes 4 different kinds of samples, which are shown in Figures \ref{samples_SM_fig1}-\ref{samples_SM_fig4}. An immediate observation is that 8-connected structure seems to produce better samples, which is reasonable considering it is more general than 4-connected structure and can better approximate the data distribution. That being said, while many samples contain digit-like shapes, they do not resemble  MNIST images.
 
 Figures \ref{ex1_empirical_precision_fig}-\ref{precision_matrix_SM_fig2} show the empirical and learned precision matrices with 4-/8-connected structure; Figure \ref{loss_SM_fig} illustrates losses.
@@ -190,7 +192,7 @@ Figures \ref{ex1_empirical_precision_fig}-\ref{precision_matrix_SM_fig2} show th
 		\begin{subfigure}[b]{0.3\textwidth}
 		\include{Exercise1/Figures/sample_2_using_multivariate_normal_with_mu_pixel_val_for_nce_False_with_orthogonalmask}
 	\end{subfigure}
-	\caption{Samples drawn from $\mathcal{N}(\bar\mu,\Sigma_\theta)$ with 4-connected precision matrix (SM).}
+	\caption{Samples drawn from $\mathcal{N}(\mu,\Sigma_\theta)$ with 4-connected precision matrix (SM).}
 	\label{samples_SM_fig1}
 \end{figure}
 
@@ -208,7 +210,7 @@ Figures \ref{ex1_empirical_precision_fig}-\ref{precision_matrix_SM_fig2} show th
 		\begin{subfigure}[b]{0.3\textwidth}
 		\include{Exercise1/Figures/sample_2_using_multivariate_normal_with_mu_pixel_val_for_nce_False_with_eight_neighboursmask}
 	\end{subfigure}
-	\caption{Samples drawn from $\mathcal{N}(\bar\mu,\Sigma_\theta)$ with 8-connected precision matrix (SM).}
+	\caption{Samples drawn from $\mathcal{N}(\mu,\Sigma_\theta)$ with 8-connected precision matrix (SM).}
 	\label{samples_SM_fig2}
 \end{figure}
 
@@ -225,7 +227,7 @@ Figures \ref{ex1_empirical_precision_fig}-\ref{precision_matrix_SM_fig2} show th
 		\begin{subfigure}[b]{0.3\textwidth}
 		\include{Exercise1/Figures/sample_2_using_slide_sampling_with_mu_pixel_val_for_nce_False_with_orthogonal_mask}
 	\end{subfigure}
-	\caption{Samples $x \leftarrow \bar\mu + \Sigma_\theta^{1/2}\varepsilon$ with $\varepsilon \sim \mathcal{N}(\mathbf{0},\mathbf{I})$ and 4-connected precision matrix (SM).}
+	\caption{Samples $x \leftarrow \mu + \Sigma_\theta^{1/2}\varepsilon$ with $\varepsilon \sim \mathcal{N}(\mathbf{0},\mathbf{I})$ and 4-connected precision matrix (SM).}
 	\label{samples_SM_fig3}
 \end{figure}
 
@@ -243,7 +245,7 @@ Figures \ref{ex1_empirical_precision_fig}-\ref{precision_matrix_SM_fig2} show th
 		\begin{subfigure}[b]{0.3\textwidth}
 		\include{Exercise1/Figures/sample_2_using_slide_sampling_with_mu_pixel_val_for_nce_False_with_eight_neighbours_mask}
 	\end{subfigure}
-	\caption{Samples $x \leftarrow \bar\mu + \Sigma_\theta^{1/2}\varepsilon$ with $\varepsilon \sim \mathcal{N}(\mathbf{0},\mathbf{I})$ and 8-connected precision matrix (SM).}
+	\caption{Samples $x \leftarrow \mu + \Sigma_\theta^{1/2}\varepsilon$ with $\varepsilon \sim \mathcal{N}(\mathbf{0},\mathbf{I})$ and 8-connected precision matrix (SM).}
 	\label{samples_SM_fig4}
 \end{figure}
 
@@ -333,7 +335,7 @@ Figures \ref{ex1_empirical_precision_fig}-\ref{precision_matrix_SM_fig2} show th
 
 \section*{\center Exercise 2}
 
-The first step was to extract 50,000 image patches of resolution $28\times 28$. We solved this problem by running the following loop: In each iteration, an image from the \texttt{Flickr30k} dataset is loaded, converted to grayscale, and split into multiple patches using the method \texttt{tf.image.extract\_patches}. Two such patches are selected at random and saved, before moving on to the next iteration, and the program terminates after saving 50,000 patches. See \texttt{create\_image\_patches.py} for details.
+The first task was to extract 50,000 image patches of resolution $28\times 28$. We solved this problem by running the following loop: In each iteration, an image from the \texttt{Flickr30k} dataset is loaded, converted to grayscale, and split into multiple patches using the method \texttt{tf.image.extract\_patches}. Two such patches are selected at random and saved, before moving on to the next iteration, and the program terminates after saving 50,000 patches.
 
 \begin{figure}[H]
 	\centering
@@ -356,7 +358,7 @@ The first step was to extract 50,000 image patches of resolution $28\times 28$. 
 \end{figure}
 
 
-Next, we used SM to compute a constrained Gaussian representing the above data. This allowed us to use the learned covariance $C = \Sigma_\theta = \Lambda_\theta^{-1}$ instead of the empirical covariance $C = \frac{1}{N-1} XX^T$ when performing ZCA whitening.  Unfortunately, however, we must have done something wrong when whitening; even the empirical covariance matrix produces apparent noise, despite ensuring that we use ZCA whitening and not PCA whitening:
+Next, we used SM to compute a constrained Gaussian representing the above data. This allowed us to use the learned covariance $C = \Sigma_\theta = \Lambda_\theta^{-1}$ instead of the empirical covariance $C = \frac{1}{N-1} XX^T$ when performing ZCA whitening.  Unfortunately, however, we must have done something wrong when whitening. Even the empirical covariance matrix produces apparent noise, despite us using ZCA rather than PCA whitening:
 
 \begin{figure}[H]
 	\centering
@@ -404,12 +406,12 @@ g_\theta(x) &= s(Vx) \qquad \text{single layer sigmoid NN}\end{aligned}, \qquad 
 with whitened and non-whitened data $x$, respectively. This meant learning two different instances of the parameters $V$, $W$, $b$, $c$, with the following choice of hyperparameters:\footnote{Due to time constraints, we never attempted $\sigma = 0.1$.}
 $$K = 64, \qquad V \in \mathbb{R}^{64\times 784}, \qquad \sigma = 1.$$
 The network was optimized using score matching, i.e. by minimizing the loss function estimate
-$$J_{SM}(\theta) \approx \frac{1}{2N} \sum_{i=1}^N \Big[ \| \nabla_x \log p_\theta(x_i)\|^2 + \Delta \log p_\theta(x_i)\Big].$$
+$$J_{SM}(\theta) \approx \frac{1}{N} \sum_{i=1}^N \left[ \frac{1}{2} \| \nabla_x \log p_\theta(x_i)\|^2 + \Delta \log p_\theta(x_i)\right].$$
 We can expand the loss function using
 \begin{alignat*}{1}
-\| \nabla_x \log p_\theta(x)\|^2 + \Delta \log p_\theta(x) &= \sum_{l=1}^{784} \left( \frac{\partial \log p_\theta(x)}{\partial x^l}\right)^2 + \frac{\partial^2 \log p_\theta(x)}{\partial {x^l}^2},
+\frac{1}{2}\| \nabla_x \log p_\theta(x)\|^2 + \Delta \log p_\theta(x) &= \sum_{l=1}^{784} \frac{1}{2} \left( \frac{\partial \log p_\theta(x)}{\partial x^l}\right)^2 + \frac{\partial^2 \log p_\theta(x)}{\partial {x^l}^2},
 \end{alignat*}
-and compute each term separately:
+and obtain explicit expressions for the derivatives:
 \begin{alignat*}{1}
 \frac{\partial \log p_\theta(x) }{\partial x^l} &= -\frac{x^l}{\sigma^2} + b^l + \sum_{k=1}^K s(w_k^T g_\theta(x) + c_k) \left( w_k^T \frac{\partial g_\theta(x)}{\partial x^l} \right)\\
 &= -\frac{x^l}{\sigma^2} + b^l + \sum_{k=1}^K s(w_k^T g_\theta(x) + c_k) \left(  w_{ki} \frac{\partial s\left(V_j^i x^j\right)}{\partial x^l} \right) \quad (\text{Einstein notation})\\
@@ -420,8 +422,9 @@ and compute each term separately:
 \frac{\partial^2 \log p_\theta(x)}{\partial {x^l}^2} = -\frac{1}{\sigma^2} +  \sum_{k=1}^K \Bigg[ &s'(w_k^T g_\theta(x) + c_k) \Big( w_{ki} s'(V_ j^i x^j ) V_l^i\Big)^2 +\\
 + \  &s(w_k^T g_\theta(x) + c_k)  \left( w_{ki} s''\left( V_j^i x^j \right) \left(V_l^i\right)^2 \right)\Bigg]
 \end{alignat*}
-These expressions are bulky but not difficult to implement.
+These expressions are bulky but not difficult to implement
 
+Figure \ref{loss_DEM} shows the loss for both models, i.e. using non-whitened and whitened data, respectively. Figure \ref{ex2_filters_fig} illustrates the learned filters $v_j$ for $j = 1,\ldots,64$, though these mainly consist of noise.
 
 
 \begin{figure}[H]
@@ -464,16 +467,44 @@ These expressions are bulky but not difficult to implement.
 		\caption{Whitened data, $\sigma = 1$.}
 	\end{subfigure}
 	\caption{Learned filters $v_j$ of size $28\times28$, for $j = 1,\ldots,64$.}
+	\label{ex2_filters_fig}
 \end{figure}
 
+Again, we appear to have made several poor design choices and other mistakes that causes the model to focus on the wrong things. Curiously, when comparing the probabilities of whitened data, hold-out natural patches, generated MNIST images, and true MNIST images, we \emph{do} observe a clear distinction, but in completely the wrong direction:
 
+As shown in Tables \ref{table1}-\ref{table2}, both whitened and hold-out natural images are given extremely small probabilities, while generated and true MNIST images are significantly less improbable. This finding suggests that we have optimized our DEM \emph{away} from the desired distribution.
 
+As disappointing as these results are, we have invested much time and effort in this assignment and learned much from it. We feel it was worthwile.
 
-\section*{\center Conclusion}
+\vspace{7mm}
 
+\begin{table}[H]
+\centering
+\begin{tabular}{r | c | c | c | c |}
+& Whitened patch & Hold-out patch & Generated MNIST & True MNIST\\
+\hline
+mean & -232.7 & -184.8 & -26.7 & -4.5\\
+\hline
+std & 113.6 & 78.8 & 65.1 & 46.7\\
+\hline
+\end{tabular}
+\caption{Mean and std of $\log p_\theta(x)$ for samples of 10 randomly chosen images.}
+\label{table1}
+\end{table}
 
-
-
+\begin{table}[H]
+\centering
+\begin{tabular}{r | c | c | c | c |}
+& Whitened patch & Hold-out patch & Generated MNIST & True MNIST\\
+\hline
+mean &-Inf& -215.3 & -34.2 & -17.3\\
+\hline
+std & NaN & 132.7 & 55.3 & 58.0\\
+\hline
+\end{tabular}
+\caption{Mean and std of $\log p_\theta(x)$ for samples of 100 randomly chosen images.}
+\label{table2}
+\end{table}
 
 
 
