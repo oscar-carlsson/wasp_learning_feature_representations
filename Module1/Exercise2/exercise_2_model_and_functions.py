@@ -4,6 +4,7 @@ import tensorflow_probability as tfp
 import scipy.linalg
 from tensorflow.keras.activations import sigmoid
 import matplotlib.pyplot as plt
+import tikzplotlib as tpl
 
 """
  IMPORTANT: Just like the presentation, I have been sloppy
@@ -315,7 +316,7 @@ def whiten(data):
     return np.transpose(data_transpose)
 
 
-def visualize_filters(V, margins=2, title=None, background_val=0):
+def visualize_filters(V, margins=2, title=None, background_val=0, saving=False, savepath='./visualized_filters.tex', **kwargs):
     if len(np.shape(V)) == 2:
         num_filters = np.shape(V)[0]
         dim = np.shape(V)[1]
@@ -364,6 +365,11 @@ def visualize_filters(V, margins=2, title=None, background_val=0):
     plt.imshow(canvas)
     if isinstance(title, str):
         plt.title()
-    plt.show()
+
+    if saving:
+        tpl.save(filepath=savepath,**kwargs)
+        plt.clf()
+    else:
+        plt.show()
 
     return canvas

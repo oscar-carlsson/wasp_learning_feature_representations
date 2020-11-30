@@ -43,10 +43,10 @@ max_epoch_gaussian = 70
 saving_gaussian_training = True
 decay_factor_gaussian = 1/2
 
-use_previous_gaussian_training = True
+use_previous_gaussian_training = False
 old_precision_matrix_name = training_saving_directory+"precision_matrix_mask_orthogonal_epoch_68.npy"
 
-whitening = True
+whitening = False
 use_empirical_covariance = False
 
 # Variables for DEM training
@@ -59,7 +59,7 @@ max_epoch_DEM = 70
 saving_DEM_training = True
 
 """
-Load and preprocess mnist data. (This will be substituted with other data.)
+Load and preprocess data.
 """
 train_images = np.array(get_flickr30k())
 
@@ -68,7 +68,10 @@ train_images = train_images / 255
 shape = np.shape(train_images)
 train_images = np.reshape(train_images, (shape[0], shape[1] * shape[2]))
 
-train_images = [img - np.mean(img) for img in train_images]
+pixel_wise_mean = np.mean(train_images, axis=0)
+
+#train_images = [img - np.mean(img) for img in train_images]
+train_images = train_images - pixel_wise_mean
 train_images = np.array(train_images, dtype=np.double)
 
 """
@@ -155,7 +158,7 @@ if not use_previous_gaussian_training:
 
             prec_name = (
                 training_saving_directory
-                + "precision_matrix_mask_"
+                + "precision_matrix_correct_mean_mask_"
                 + mask_type
                 + "_epoch_"
                 + str(epoch + 1)
@@ -165,7 +168,7 @@ if not use_previous_gaussian_training:
 
             loss_name = (
                 training_saving_directory
-                + "loss_for_each_step_mask_"
+                + "loss_for_each_step_correct_mean_mask_"
                 + mask_type
                 + "_epoch_"
                 + str(epoch + 1)
@@ -213,7 +216,10 @@ Data whitening
 """
 
 if whitening:
-    C = np.linalg.inv(dataset_precision_matrix)
+    if use_empirical_covariance:
+        C = 1 / (shape[0] - 1) * np.einsum("ki,kj->ij", train_images, train_images)
+    else:
+        C = np.linalg.inv(dataset_precision_matrix)
     eigs, U = np.linalg.eig(C)
 
     eigs = [1 if eig < 0 else eig for eig in eigs]
@@ -279,7 +285,7 @@ while True:
     print("End of epoch loss: ", np.mean(epoch_loss))
 
     if saving_DEM_training:
-        model.save(training_saving_directory,other="_"+str(epoch+1)+"_epochs_whitened_"+str(whitening)+"_"+mask_type+"_mask.npy")
+        model.save(training_saving_directory,other="_"+str(epoch+1)+"_epochs_whitened_"+str(whitening)+"_"+mask_type+"_mask")
         np.save(training_saving_directory+"DEM_loss_epoch_"+str(epoch+1)+"_whitened_"+str(whitening)+"_"+mask_type+"_mask.npy",epoch_loss)
     if epoch >= 1:
         loss_diff.append(
@@ -311,7 +317,6 @@ plt.show()
 print(model(train_images[:3]))
 
 visualize_filters(model.V.numpy(), background_val=-10)
-
 
 '''
 """

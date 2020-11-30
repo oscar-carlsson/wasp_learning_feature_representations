@@ -5,6 +5,7 @@ import gzip
 import pickle
 import sys
 from create_image_patches import flickr30k_image_patches
+from create_image_patches import flickr30k_hold_out_patches
 
 def get_mnist(use_keras=False):
 
@@ -37,9 +38,9 @@ def get_mnist(use_keras=False):
         os.mkdir(dataset_dir)
 
     os.chdir(dataset_dir)
-
-    if os.path.isfile("mnist.gz"):
-        with gzip.open("mnist.gz", "rb") as f:
+    mnist_path = "/home/oscar/gitWorkspaces/wasp_learning_feature_representations_module_1/mnist/"
+    if os.path.isfile(mnist_path+"mnist.gz"):
+        with gzip.open(mnist_path+"mnist.gz", "rb") as f:
             data_dict = pickle.load(f)
         print("Done.")
         return data_dict
@@ -140,7 +141,20 @@ def get_flickr30k():
     print("Done.")
     return data_dict
 
+def get_flickr30k_hold_out():
+    base_path = "/home/oscar/gitWorkspaces/wasp_learning_feature_representations_module_1/Module1/Exercise2/dataset/"
+    if os.path.isfile(base_path+"flickr30k_hold_out.gz"):
+        with gzip.open(base_path+"flickr30k_hold_out.gz", "rb") as f:
+            data_dict = pickle.load(f)
+        print("Done.")
+        return data_dict
 
+    flickr30k_hold_out_patches()
+
+    with gzip.open(base_path+"flickr30k_hold_out.gz", "rb") as f:
+        data_dict = pickle.load(f)
+    print("Done.")
+    return data_dict
 # Local Variables:
 # fill-column: 88
 # ispell-local-dictionary: "en_US"

@@ -30,14 +30,14 @@ Loading parameters
 
 gaussian_epochs = np.arange(68)+1
 mask_type = "orthogonal"
-DEM_epochs = np.arange(49)+1
-whitening = True
+DEM_epochs = np.arange(20)+1
+whitening = False
 
 """
 Saving parameters
 """
-extra_axis_parameters=["scale = 0.5"]
-sigma=1
+extra_axis_parameters = ["scale = 0.5"]
+sigma = 1
 
 """
 Load DEM results
@@ -48,16 +48,18 @@ params = np.load(training_saving_directory+"trainable_parameters_"+str(DEM_epoch
 param_dict = {}
 
 for par in params:
-    param_dict[par.name[0]]=par.numpy()
+    param_dict[par.name[0]] = par.numpy()
 
 model = DEM.load_model(param_dict=param_dict, sigma=sigma)
 
-log_model = model.exponent_marginal_dist(train_images[:10])
-log_model_mean = tf.reduce_mean(log_model)
-log_model_std = tf.math.reduce_std(log_model)
+#log_model = model.exponent_marginal_dist(train_images)
+#log_model_mean = tf.reduce_mean(log_model)
+#log_model_std = tf.math.reduce_std(log_model)
 
-print(log_model_mean)
-print(log_model_std)
+
+
+#print(log_model_mean)
+#print(log_model_std)
 
 DEM_step_loss = []
 DEM_epoch_loss = []
@@ -70,10 +72,17 @@ DEM_step_loss = np.concatenate(DEM_step_loss)
 
 plt.plot(DEM_epoch_loss)
 #plt.show()
-tpl.save(figure_saving_directory+"dem_loss_whitening_"+str(whitening)+"_sigma_"+str(sigma)+"_mask_"+mask_type)
+tpl.save(figure_saving_directory+"dem_loss_whitening_"+str(whitening)+"_sigma_"+str(sigma)+"_mask_"+mask_type+".tex", extra_axis_parameters=extra_axis_parameters)
+plt.clf()
 
-visualize_filters(param_dict['V'])
+plt.plot(DEM_step_loss)
+#plt.show()
+tpl.save(figure_saving_directory+"dem_loss_per_step_whitening_"+str(whitening)+"_sigma_"+str(sigma)+"_mask_"+mask_type+".tex", extra_axis_parameters=extra_axis_parameters)
+plt.clf()
 
+visualize_filters(param_dict['V'], saving=True, savepath=figure_saving_directory+"filters_in_V_whitening_"+str(whitening)+"_sigma_"+str(sigma)+"_mask_"+mask_type+".tex", extra_axis_parameters=extra_axis_parameters)
+
+'''# This does not need to be run unless we actually rerun the Gaussian fit of the precision matrix
 """
 Load Gaussian modeling of images
 """
@@ -88,26 +97,39 @@ for gauss_epoch in gaussian_epochs:
 gauss_step_loss = np.concatenate(gauss_step_loss)
 
 plt.plot(gauss_epoch_loss)
-plt.show()
+tpl.save(figure_saving_directory+"gaussian_loss_mask_"+mask_type+".tex", extra_axis_parameters=extra_axis_parameters)
+#plt.show()
+plt.clf()
 
 precision_matrix = np.load(training_saving_directory+"precision_matrix_mask_"+mask_type+"_epoch_"+str(gaussian_epochs[-1])+".npy")
 
 plt.figure()
 plt.imshow(precision_matrix)
-plt.title("Learned precicion mask")
-plt.show(block=False)
+plt.colorbar()
+tpl.save(figure_saving_directory+"learned_precision_matrix_mask_"+mask_type+".tex", extra_axis_parameters=extra_axis_parameters)
+#plt.show(block=False)
+plt.clf()
 
 plt.figure()
 plt.imshow(empirical_prec)
-plt.title("Empirical precicion mask")
-plt.show(block=True)
+#plt.title("Empirical precicion mask")
+plt.colorbar()
+tpl.save(figure_saving_directory+"empirical_precision_matrix.tex", extra_axis_parameters=extra_axis_parameters)
+#plt.show(block=True)
+plt.clf()
 
 plt.figure()
 plt.imshow(np.linalg.inv(precision_matrix))
-plt.title("Learned covariance matrix")
-plt.show(block=False)
+#plt.title("Learned covariance matrix")
+plt.colorbar()
+tpl.save(figure_saving_directory+"learned_covariance_matrix_mask_"+mask_type+".tex", extra_axis_parameters=extra_axis_parameters)
+#plt.show(block=False)
+plt.clf()
 
 plt.figure()
 plt.imshow(empirical_cov)
-plt.title("Empirical covariance matrix")
-plt.show(block=True)
+#plt.title("Empirical covariance matrix")
+plt.colorbar()
+tpl.save(figure_saving_directory+"empirical_covariance_matrix.tex", extra_axis_parameters=extra_axis_parameters)
+#plt.show(block=True)
+plt.clf()'''
