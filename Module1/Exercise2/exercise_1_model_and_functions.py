@@ -244,7 +244,7 @@ class Params:
                 '''arr = tf.math.abs(
                     tf.random.uniform((self.dim, self.dim), 0.1, 1, dtype=tf.float64)
                 )'''
-                arr = tf.random.normal((self.dim, self.dim), 0, 3.5e2, dtype=tf.float64)
+                arr = tf.random.normal((self.dim, self.dim), 0, 1, dtype=tf.float64)
 
                 tmp = tf.Variable(make_symmetric(arr, mask=mask))
 
