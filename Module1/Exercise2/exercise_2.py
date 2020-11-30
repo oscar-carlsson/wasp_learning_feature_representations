@@ -39,18 +39,23 @@ learning_rate_gaussian = 0.001
 batch_size_gaussian = 100
 mask_type = "orthogonal"
 epochs_gaussian = 1
-max_epoch_gaussian = 100
+max_epoch_gaussian = 70
 saving_gaussian_training = True
-decay_factor_gaussian = 1
+decay_factor_gaussian = 1/2
+
+use_previous_gaussian_training = True
+old_precision_matrix_name = training_saving_directory+"precision_matrix_mask_orthogonal_epoch_68.npy"
 
 whitening = True
+use_empirical_covariance = False
 
 # Variables for DEM training
+sigma=1
 learning_rate_DEM = 0.001
 epochs_DEM = 1
-batch_size_DEM = 1000
-decay_factor_DEM = 1
-max_epoch_DEM = 100
+batch_size_DEM = 10
+decay_factor_DEM = 1/2
+max_epoch_DEM = 70
 saving_DEM_training = True
 
 """
@@ -69,141 +74,140 @@ train_images = np.array(train_images, dtype=np.double)
 """
 Create and train gaussian model for estimating Lambda
 """
+if not use_previous_gaussian_training:
+    mask = adjacency_mask(shape=(28, 28), mask_type=mask_type)
+    gaussian_model_params = ex1.Params((28, 28), mask=mask)
 
+    gaussian_model = ex1.GaussianModel((28, 28), params=gaussian_model_params)
 
+    # @tf.function
+    def train_step(data):
+        with tf.GradientTape(persistent=True) as tape:
 
-mask = adjacency_mask(shape=(28, 28), mask_type=mask_type)
-gaussian_model_params = ex1.Params((28, 28), mask=mask)
+            loss = loss_fcn(
+                data,
+            )
 
-gaussian_model = ex1.GaussianModel((28, 28), params=gaussian_model_params)
-
-# @tf.function
-def train_step(data):
-    with tf.GradientTape(persistent=True) as tape:
-
-        loss = loss_fcn(
-            data,
+        grads = ex1.make_symmetric(
+            tape.gradient(loss, gaussian_model.precision_matrix), mask=gaussian_model.mask
         )
-
-    grads = ex1.make_symmetric(
-        tape.gradient(loss, gaussian_model.precision_matrix), mask=gaussian_model.mask
-    )
-    optimizer.apply_gradients(zip([grads], [gaussian_model.precision_matrix]))
-    return loss, grads
+        optimizer.apply_gradients(zip([grads], [gaussian_model.precision_matrix]))
+        return loss, grads
 
 
-loss_fcn = gaussian_model.model_loss
-optimizer = optimizers.RMSprop(learning_rate=learning_rate_gaussian)
+    loss_fcn = gaussian_model.model_loss
+    optimizer = optimizers.RMSprop(learning_rate=learning_rate_gaussian)
 
-widgets = [
-    " [",
-    progressbar.Timer(format="Elapsed time: %(elapsed)s"),
-    "] ",
-    progressbar.Bar("*"),
-    " (",
-    progressbar.ETA(),
-    ") ",
-]
+    widgets = [
+        " [",
+        progressbar.Timer(format="Elapsed time: %(elapsed)s"),
+        "] ",
+        progressbar.Bar("*"),
+        " (",
+        progressbar.ETA(),
+        ") ",
+    ]
 
-loss_epochs = []
-loss = []
-loss_diff = []
-grads = []
-epoch = 0
+    loss_epochs = []
+    loss = []
+    loss_diff = []
+    grads = []
+    epoch = 0
 
-nan_precision = False
-nan_loss = False
-train_dataset = tf.data.Dataset.from_tensor_slices(train_images)
-train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size=batch_size_gaussian)
-for epoch in range(epochs_gaussian):
-    # while True:
-    print("Start of epoch ", epoch + 1, "\n")
-    bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
-    loss_epoch = []
-    for step, train_image_batch in enumerate(train_dataset):
+    nan_precision = False
+    nan_loss = False
+    train_dataset = tf.data.Dataset.from_tensor_slices(train_images)
+    train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size=batch_size_gaussian)
+    #for epoch in range(epochs_gaussian):
+    while True:
+        print("Gaussian model: Start of epoch ", epoch + 1, "\n")
+        bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
+        loss_epoch = []
+        for step, train_image_batch in enumerate(train_dataset):
 
-        worked = True
-        try:
-            step_loss, step_grads = train_step(train_image_batch)
-        except:
-            traceback.print_exc()
-            worked = False
+            worked = True
+            try:
+                step_loss, step_grads = train_step(train_image_batch)
+            except:
+                traceback.print_exc()
+                worked = False
 
-        if np.any(np.isnan(gaussian_model.precision_matrix.numpy())):
-            nan_precision = True
+            if np.any(np.isnan(gaussian_model.precision_matrix.numpy())):
+                nan_precision = True
+                break
+
+            if np.isnan(step_loss):
+                nan_loss = True
+                break
+
+            if (step % 100 == 0) and worked:
+                grads.append(step_grads.numpy())
+                loss_epoch.append(step_loss)
+
+            bar.update(step)
+
+        loss_epochs.append(loss_epoch)
+        loss.append(np.mean(loss_epoch))
+
+        print("End of epoch loss: ", np.mean(loss_epoch))
+
+        if saving_gaussian_training:
+
+            prec_name = (
+                training_saving_directory
+                + "precision_matrix_mask_"
+                + mask_type
+                + "_epoch_"
+                + str(epoch + 1)
+                + ".npy"
+            )
+            np.save(prec_name, gaussian_model.precision_matrix.numpy())
+
+            loss_name = (
+                training_saving_directory
+                + "loss_for_each_step_mask_"
+                + mask_type
+                + "_epoch_"
+                + str(epoch + 1)
+                + ".npy"
+            )
+            np.save(loss_name, loss_epoch)
+
+        if epoch >= 1:
+            loss_diff.append(
+                loss[-1] - loss[-2]
+            )  # If loss is reducing then loss[-1]<loss[-2] --> loss[-1]-loss[-2]<0
+            if loss_diff[-1] > 0:
+                learning_rate_gaussian = learning_rate_gaussian * decay_factor_gaussian
+                optimizer.lr.assign(learning_rate_gaussian)
+                print(optimizer.get_config()["learning_rate"])
+        if epoch >= 3:
+            print(
+                "Mean of last three loss diffs (",
+                loss_diff[-3:],
+                ") is: ",
+                np.mean(loss_diff[-3:]),
+                "\n",
+            )
+            if np.mean(loss_diff[-3:]) > 0:
+                break
+
+        if nan_precision:
+            print("NaN precision!!")
             break
 
-        if np.isnan(step_loss):
-            nan_loss = True
+        if nan_loss:
+            print("NaN loss!!")
             break
 
-        if (step % 100 == 0) and worked:
-            grads.append(step_grads.numpy())
-            loss_epoch.append(step_loss)
-
-        bar.update(step)
-
-    loss_epochs.append(loss_epoch)
-    loss.append(np.mean(loss_epoch))
-
-    print("End of epoch loss: ", np.mean(loss_epoch))
-
-    if saving_gaussian_training:
-
-        prec_name = (
-            training_saving_directory
-            + "precision_matrix_mask_"
-            + mask_type
-            + "_epoch_"
-            + str(epoch + 1)
-            + ".npy"
-        )
-        np.save(prec_name, gaussian_model.precision_matrix.numpy())
-
-        loss_name = (
-            training_saving_directory
-            + "loss_for_each_step_mask_"
-            + mask_type
-            + "_epoch_"
-            + str(epoch + 1)
-            + ".npy"
-        )
-        np.save(loss_name, loss_epoch)
-
-    if epoch >= 1:
-        loss_diff.append(
-            loss[-1] - loss[-2]
-        )  # If loss is reducing then loss[-1]<loss[-2] --> loss[-1]-loss[-2]<0
-        if loss_diff[-1] > 0:
-            learning_rate_gaussian = learning_rate_gaussian * decay_factor_gaussian
-            optimizer.lr.assign(learning_rate_gaussian)
-            print(optimizer.get_config()["learning_rate"])
-    if epoch >= 3:
-        print(
-            "Mean of last three loss diffs (",
-            loss_diff[-3:],
-            ") is: ",
-            np.mean(loss_diff[-3:]),
-            "\n",
-        )
-        if np.mean(loss_diff[-3:]) > 0:
+        if epoch >= max_epoch_gaussian:
             break
 
-    if nan_precision:
-        print("NaN precision!!")
-        break
+        epoch += 1
 
-    if nan_loss:
-        print("NaN loss!!")
-        break
-
-    if epoch >= max_epoch_gaussian:
-        break
-
-    epoch += 1
-
-dataset_precision_matrix = gaussian_model.precision_matrix.numpy()
-
+    dataset_precision_matrix = gaussian_model.precision_matrix.numpy()
+else:
+    dataset_precision_matrix = np.load(old_precision_matrix_name)
 """
 Data whitening
 """
@@ -226,7 +230,7 @@ if whitening:
 Create and train DEM on whitened data
 """
 
-model = DEM((28, 28))  # Testing defining a model
+model = DEM((28, 28), sigma=sigma)  # Testing defining a model
 
 loss_fcn = model.score_matching
 optimizer = optimizers.RMSprop(learning_rate=learning_rate_DEM)
@@ -255,13 +259,15 @@ def train_step(data):
 train_dataset = tf.data.Dataset.from_tensor_slices(train_images)
 train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size=batch_size_DEM)
 
-epoch_loss = []
+
 loss = []
+loss_diff = []
 epoch = 0
 #for epoch in range(epochs_DEM):
 while True:
-    print("Start of epoch ", epoch + 1)
+    print("DEM: Start of epoch ", epoch + 1)
     bar = progressbar.ProgressBar(max_value=len(train_dataset), widgets=widgets).start()
+    epoch_loss = []
     for step, train_image_batch in enumerate(train_dataset):
         step_loss, step_grads = train_step(train_image_batch)
         # print(step_grads)
@@ -269,13 +275,12 @@ while True:
         bar.update(step)
 
     loss.append(np.mean(epoch_loss))
-    loss.append(np.mean(loss_epoch))
 
-    print("End of epoch loss: ", np.mean(loss_epoch))
+    print("End of epoch loss: ", np.mean(epoch_loss))
 
     if saving_DEM_training:
-        model.save(training_saving_directory)
-
+        model.save(training_saving_directory,other="_"+str(epoch+1)+"_epochs_whitened_"+str(whitening)+"_"+mask_type+"_mask.npy")
+        np.save(training_saving_directory+"DEM_loss_epoch_"+str(epoch+1)+"_whitened_"+str(whitening)+"_"+mask_type+"_mask.npy",epoch_loss)
     if epoch >= 1:
         loss_diff.append(
             loss[-1] - loss[-2]
