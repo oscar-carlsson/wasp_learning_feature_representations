@@ -60,43 +60,29 @@
 \vspace{7mm}
 %\maketitle
 
-In this document, we summarize our work on the first Homework.
+%In this document, we summarize our work on the first Homework.
 
 \section*{\center Exercise 1}
 
-In this first exercise, we attempt to model the (unknown) distribution of MNIST images, $x \sim p_d$, and hopefully generate synthetic images that look realistic. More precisely, we remove the empirical mean $\mu$ from each training image and see whether the remaining noise $x - \mu$ can be modeled with a multivariate Gaussian distribution $\mathcal{N}(\mathbf{0},\Sigma_\theta)$ with learned precision matrix $\Lambda_\theta = \Sigma_\theta^{-1}$. Synthetic images could then be created by either sampling noise from the model distribution and adding back the empirical mean, 
-$$x' = \mu + \epsilon, \qquad \epsilon \sim \mathcal{N}(\mathbf{0},\Sigma_\theta),$$
-or by using the precision matrix directly:
-$$x' = \mu + A_\theta \epsilon, \qquad A_\theta = \Lambda_\theta^{-1/2}, \epsilon \sim \mathcal{N}(0,1/100).$$
-
-Two different methods have been used to estimate the precision matrix:
+In this first exercise, we attempt to model the (unknown) distribution of MNIST images, $x \sim p_d$, and hopefully generate synthetic images that look realistic. In more detail, we start by removing the average MNIST image $\mu \in \mathbb{R}^{28\times 28}$ from each training image $x$, and we then explore whether the remaining \emph{MNIST noise} data $x - \mu$ can be modeled using a multivariate Gaussian $\mathcal{N}(\mathbf{0},\Sigma_\theta)$ with a learned precision matrix $\Lambda_\theta = \Sigma_\theta^{-1}$. One could then create synthetic images that resemble real MNIST images. Two different methods have been considered for estimating $\Lambda_\theta$:
 \begin{itemize}
-\item Noise-contrastive estimation (NCE), and
+\item Noise-contrastive estimation (NCE),
 \item Score matching (SM).
 \end{itemize}
-Seeing as the underlying ideas and general analysis of these methods have already been discussed by Christopher Zach in his \texttt{presentation\_part1}, we shall gloss over the introductions and focus on those additional, important details which are not featured in the presentation.
+Seeing as the underlying ideas and general analysis of these methods have already been discussed by Christopher Zach in his \texttt{presentation\_part1}, we gloss over the introduction of each method and focus on those additional, problem-specific details which are not featured in the presentation. 
 
+Before jumping into the analysis and numerics, however, we must admit that we have not achieved good numerical results in this assignment. First and foremost, we suffered problems with infinite gradients when training NCE, and we never managed to solve this problem. Score matching did work and our sampled images do have digit-like patterns, however, they are not very convincing. These problems continued in Exercise 2 where ZCA whitening produced apparent noise, even when using the empirical covariance matrix, and the learned filters $v_j$ do not have clear features.
 
-\begin{figure}[H]
-	\centering
-	\begin{subfigure}[b]{0.49\textwidth}
-		\include{Exercise1/Figures/empirical_precision_matrix_minus_trained_for_mnist}
-		\caption{}
-	\end{subfigure}
-	\hfill
-	\begin{subfigure}[b]{0.49\textwidth}
-		\include{Exercise1/Figures/last_70_elements_of_empirical_precision_matrix}
-		\caption{}
-	\end{subfigure}
-	\caption{Empirical precision matrix for MNIST}
-\end{figure}
+In summary, our numerical results are quite disappointing - even more so considering how much time we have spent on this assignment. We have almost certainly made some bad design choices, bad initializations, and perhaps we misunderstood some parts of the theory. That being said, it has genuinely been fun and we have learned a whole lot from the process. 
 
 
 \subsection*{NCE}
 
 As explained in the presentation by Zach, noise-contrastive estimation (NCE) casts the estimation of distribution parameters as a supervised learning problem. This effectively means teaching the model distribution $p_\theta$ to distinguish between real data $x \sim p_d$ and noise data $x' \sim p_n$, where the noise distribution should be similar enough to the data distribution for this classification problem to be challenging; we want the model distribution $p_\theta$ to learn  the most essential properties of $p_d$.
 
-After choosing a suitable noise distribution $p_n$, we construct a data set by flipping a weighted coin $z \sim \text{Bern}(1-\eta)$ multiple times and letting each result $z_i \in \{0,1\}$ decide whether to sample $x_i$ from the data distribution ($z_i = 1$) or from the noise distribution ($z_i = 0$). Denote the resulting training examples by $x_1,\ldots,x_N$ and noise samples by $x_1',\ldots,x_M'$, so that $M+N$ is the total number of coin flips. In NCE, we wish to use these samples to minimize the loss function
+For the noise distribution, we chose a multivariate Gaussian $\mathcal{N}(\mathbf{0},\Sigma_n)$ whose covariance matrix $\Sigma_n$ coincides with the empirical covariance matrix for the MNIST noise data.
+
+We then construct a data set by flipping a weighted coin $z \sim \text{Bern}(1-\eta)$ multiple times and letting each result $z_i \in \{0,1\}$ decide whether to sample $x_i$ from the data distribution ($z_i = 1$) or from the noise distribution ($z_i = 0$). Denote the resulting training examples by $x_1,\ldots,x_N$ and noise samples by $x_1',\ldots,x_M'$, so that $M+N$ is the total number of coin flips. In NCE, we wish to use these samples to minimize the loss function
 
 \begin{equation}\label{J_function}
 J(\theta) \propto \mathbb{E}_{x \sim p_d} \left[ \log \frac{p_\theta(x)}{p_\theta(x) + \nu p_n(x)}\right] + \nu \mathbb{E}_{x \sim p_n} \left[ \log \frac{ \nu p_n(x)}{p_\theta(x) + \nu p_n(x)}\right],
@@ -130,9 +116,14 @@ The matrix product $A_\theta^T A_\theta$ is guaranteed to be symmetric positive 
 
 \item Forcing a symmetric gradient by throwing away its lower triangular part and replacing it with the transpose of its upper triangular part. We then applied the previously mentioned masking matrix $M$ to force the neighbourhood structure on the gradient. This ensures that $\Lambda_\theta$ is symmetric and retains its neighbourhood structure for all epochs. On the other hand, we still cannot guarantee that $\Lambda_\theta$ remains positive definite.
 \end{enumerate}
-We ended up choosing the latter approach.\footnote{We later realized $\Lambda_\theta$ can also be modeled through its eigendecomposition, which would make it easy to ensure positive (semi)definiteness by flipping the signs of negative eigenvalues. Due to time constraints and different priorities, however, we never tried implementing this approach.}
+We ended up choosing the latter approach.\footnote{We later realized $\Lambda_\theta$ can also be modeled through its eigendecomposition, which would make it easy to ensure positive (semi)definiteness by flipping the signs of negative eigenvalues. Due to time constraints and different priorities, however, we never implemented this approach.} However, as explained above, we encountered infinite gradients - a problem we were unable to solve. We suspect the problem is caused by $w(x)$ taking such extreme values, which is why we tried approximating the second logarithm in equation \eqref{J_function2} to avoid computing a large exponential, but to no avail. The extremity of $w(x)$ also causes the loss function to be essentially independent of the MNIST data - a serious problem on its own.
 
-$$\textit{*Insert figures of samples, loss, etc*}$$
+A natural solution to both of these problems seems to be: Improving the initialization of both precision matrices $\Lambda_\theta$ and $\Lambda_n$. We tried this, and we also tried scaling down both determinants $|\Lambda_\theta|$ and $|\Lambda_n|$ by the same constant factor to improve numeric stability, but the problem persisted.
+
+We recognize that we may have fallen into the trap discussed in \texttt{presentation\_part1}, slide 51: That we want to model properties of $p_d$, not of $p_n$, and that it's easy to have a ``good'' solution if $p_\theta$ simply detects features in noise. Indeed, we are explicitly warned against expressions of the form
+$$\log p_\theta(x) = -\sum_k \log(1 + \exp(\cdots)),$$
+which is precisely the kind of expressions we obtain in equation \eqref{J_function2}. We did attempt to naïvely change the sign in $J(\theta)$ to see what would happen, but the problem prevailed.
+
 
 \subsection*{Score Matching}
 
@@ -146,7 +137,7 @@ To get a better idea of how well our learned distribution $p_\theta$ approximate
 $$x \leftarrow \bar\mu + \Sigma_\theta^{1/2}\varepsilon,$$
 where $\varepsilon \sim \mathcal{N}(\mathbf{0},\mathbf{I})$. Combined with the choice of 4-/8-connected structure, this makes 4 different kinds of samples, which are shown in Figures \ref{samples_SM_fig1}-\ref{samples_SM_fig4}. An immediate observation is that 8-connected structure seems to produce better samples, which is reasonable considering it is more general than 4-connected structure and can better approximate the data distribution. That being said, while many samples contain digit-like shapes, they do not resemble  MNIST images.
 
-Figures \ref{precision_matrix_SM_fig1}-\ref{precision_matrix_SM_fig2} show the learned precision matrix in the cases of 4-/8-connected structure, and finally, Figure \ref{loss_SM_fig} illustrates the loss in both cases.
+Figures \ref{ex1_empirical_precision_fig}-\ref{precision_matrix_SM_fig2} show the empirical and learned precision matrices with 4-/8-connected structure; Figure \ref{loss_SM_fig} illustrates losses.
 
 
 %-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -261,6 +252,22 @@ Figures \ref{precision_matrix_SM_fig1}-\ref{precision_matrix_SM_fig2} show the l
 \begin{figure}[H]
 	\centering
 	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise1/Figures/empirical_precision_matrix_minus_trained_for_mnist}
+		\caption{}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise1/Figures/last_70_elements_of_empirical_precision_matrix}
+		\caption{}
+	\end{subfigure}
+	\caption{Empirical precision matrix for MNIST}
+	\label{ex1_empirical_precision_fig}
+\end{figure}
+
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.49\textwidth}
 		\include{Exercise1/Figures/Precision_matrix_after_training_for_NCE_False_with_orthogonal_mask}
 		\caption{}
 	\end{subfigure}
@@ -307,20 +314,162 @@ Figures \ref{precision_matrix_SM_fig1}-\ref{precision_matrix_SM_fig2} show the l
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 \section*{\center Exercise 2}
 
 The first step was to extract 50,000 image patches of resolution $28\times 28$. We solved this problem by running the following loop: In each iteration, an image from the \texttt{Flickr30k} dataset is loaded, converted to grayscale, and split into multiple patches using the method \texttt{tf.image.extract\_patches}. Two such patches are selected at random and saved, before moving on to the next iteration, and the program terminates after saving 50,000 patches. See \texttt{create\_image\_patches.py} for details.
 
-Next, we computed a constrained Gaussian representing the above data \lipsum[2]
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.32\textwidth}
+		\centering
+		\includegraphics[scale=3]{Exercise1/Figures/patch_example0.jpeg}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.32\textwidth}
+		\centering
+		\includegraphics[scale=3]{Exercise1/Figures/patch_example1.jpeg}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.32\textwidth}
+		\centering
+		\includegraphics[scale=3]{Exercise1/Figures/patch_example2.jpeg}
+	\end{subfigure}
+	\caption{Examples of image patches.}
+	\label{loss_SM_fig}
+\end{figure}
+
+
+Next, we used SM to compute a constrained Gaussian representing the above data. This allowed us to use the learned covariance $C = \Sigma_\theta = \Lambda_\theta^{-1}$ instead of the empirical covariance $C = \frac{1}{N-1} XX^T$ when performing ZCA whitening.  Unfortunately, however, we must have done something wrong when whitening; even the empirical covariance matrix produces apparent noise, despite ensuring that we use ZCA whitening and not PCA whitening:
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.32\textwidth}
+		\centering
+		\include{Exercise2/Figures/img_1_non_whitened}
+		\caption{Non-whitened}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.32\textwidth}
+		\centering
+		\include{Exercise2/Figures/img_1_whitened_used_empirical_covariance}
+		\caption{Whitened with empirical cov.}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.32\textwidth}
+		\centering
+		\include{Exercise2/Figures/img_1_whitened_used_trained_covariance}
+		\caption{Whitened with learned cov.}
+	\end{subfigure}
+	\caption{ZCA whitening produces apparent noise, even when using the empirical cov.}
+	\label{ex2_whitening_fig}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise2/Figures/empirical_covariance_matrix}
+		\caption{Empirical covariance matrix}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise2/Figures/learned_covariance_matrix_mask_orthogonal}
+		\caption{Learned covariance matrix}
+	\end{subfigure}
+	\caption{Empirical vs. learned covariance matrix, using 4-connected precision matrix.}
+	\label{ex2_covmatrices_fig}
+\end{figure}
+
+After whitening, we trained two separate 2-layer deep energy models (DEM) of the form
+\begin{alignat*}{1}
+\qquad \begin{aligned}\log p_\theta(x) &\dot{=}-\frac{1}{2\sigma^2} \|x\|^2 + b^T x + \sum_{k=1}^K S(w_k^T g_\theta(x) + c_k)\\
+g_\theta(x) &= s(Vx) \qquad \text{single layer sigmoid NN}\end{aligned}, \qquad \left(\begin{aligned} S(u) &= \log(1 + e^u)\\ s(u) &= \text{sigmoid}(u)\end{aligned} \right)
+\end{alignat*}
+with whitened and non-whitened data $x$, respectively. This meant learning two different instances of the parameters $V$, $W$, $b$, $c$, with the following choice of hyperparameters:\footnote{Due to time constraints, we never attempted $\sigma = 0.1$.}
+$$K = 64, \qquad V \in \mathbb{R}^{64\times 784}, \qquad \sigma = 1.$$
+The network was optimized using score matching, i.e. by minimizing the loss function estimate
+$$J_{SM}(\theta) \approx \frac{1}{2N} \sum_{i=1}^N \Big[ \| \nabla_x \log p_\theta(x_i)\|^2 + \Delta \log p_\theta(x_i)\Big].$$
+We can expand the loss function using
+\begin{alignat*}{1}
+\| \nabla_x \log p_\theta(x)\|^2 + \Delta \log p_\theta(x) &= \sum_{l=1}^{784} \left( \frac{\partial \log p_\theta(x)}{\partial x^l}\right)^2 + \frac{\partial^2 \log p_\theta(x)}{\partial {x^l}^2},
+\end{alignat*}
+and compute each term separately:
+\begin{alignat*}{1}
+\frac{\partial \log p_\theta(x) }{\partial x^l} &= -\frac{x^l}{\sigma^2} + b^l + \sum_{k=1}^K s(w_k^T g_\theta(x) + c_k) \left( w_k^T \frac{\partial g_\theta(x)}{\partial x^l} \right)\\
+&= -\frac{x^l}{\sigma^2} + b^l + \sum_{k=1}^K s(w_k^T g_\theta(x) + c_k) \left(  w_{ki} \frac{\partial s\left(V_j^i x^j\right)}{\partial x^l} \right) \quad (\text{Einstein notation})\\
+&=  -\frac{x^l}{\sigma^2} + b^l + \sum_{k=1}^K s(w_k^T g_\theta(x) + c_k) \Big( w_{ki} s'(V_j^i x^j ) V_l^i\Big), 
+\end{alignat*}
+ and
+\begin{alignat*}{1}
+\frac{\partial^2 \log p_\theta(x)}{\partial {x^l}^2} = -\frac{1}{\sigma^2} +  \sum_{k=1}^K \Bigg[ &s'(w_k^T g_\theta(x) + c_k) \Big( w_{ki} s'(V_ j^i x^j ) V_l^i\Big)^2 +\\
++ \  &s(w_k^T g_\theta(x) + c_k)  \left( w_{ki} s''\left( V_j^i x^j \right) \left(V_l^i\right)^2 \right)\Bigg]
+\end{alignat*}
+These expressions are bulky but not difficult to implement.
+
+
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise2/Figures/dem_loss_whitening_False_sigma_1_mask_orthogonal}
+		\caption{Non-whitened data, $\sigma = 1$.}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.49\textwidth}
+		\include{Exercise2/Figures/dem_loss_whitening_True_sigma_1_mask_orthogonal}
+		\caption{Whitened data, $\sigma=1$.}
+	\end{subfigure}
+	%\hfill
+	%	\begin{subfigure}[b]{0.49\textwidth}
+	%	\include{Exercise1/Figures/Loss_for_NCE_False_with_eight_neighbours_mask}
+	%	\caption{8-connected}
+	%\end{subfigure}
+	%\hfill
+	%	\begin{subfigure}[b]{0.49\textwidth}
+	%	\include{Exercise1/Figures/Loss_for_NCE_False_with_eight_neighbours_mask}
+	%	\caption{8-connected}
+	%\end{subfigure}
+	\caption{DEM loss with and without whitening}
+	\label{loss_DEM}
+\end{figure}
+
+
+\begin{figure}[H]
+\centering
+	\begin{subfigure}[b]{0.49\textwidth}
+		\centering
+		\include{Exercise2/Figures/filters_in_V_whitening_False_sigma_1_mask_orthogonal}
+		\caption{Non-whitened data, $\sigma = 1$.}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[b]{0.49\textwidth}
+	\centering
+		\include{Exercise2/Figures/filters_in_V_whitening_True_sigma_1_mask_orthogonal}
+		\caption{Whitened data, $\sigma = 1$.}
+	\end{subfigure}
+	\caption{Learned filters $v_j$ of size $28\times28$, for $j = 1,\ldots,64$.}
+\end{figure}
 
 
 
 
-
-
-
-
-
+\section*{\center Conclusion}
 
 
 
