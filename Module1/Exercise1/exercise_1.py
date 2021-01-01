@@ -77,9 +77,9 @@ learning_rate = 0.001
 eta = 0.5  # Probability that sample is real and not noise
 nu = 1 / eta - 1
 batch_size = 100
-mask_type = "orthogonal"
+mask_type = "eight_neighbours"
 epochs = 3
-max_epoch = 100
+max_epoch = 500
 NCE = False
 tf_function = False
 saving = True
@@ -280,7 +280,7 @@ while True:
         if loss_diff[-1] > 0:
             learning_rate = learning_rate * decay_factor
             optimizer.lr.assign(learning_rate)
-            print(optimizer.get_config()["learning_rate"])
+            print("New learning rate: ", optimizer.get_config()["learning_rate"])
     if epoch >= 3:
         print(
             "Mean of last three loss diffs (",
@@ -289,8 +289,8 @@ while True:
             np.mean(loss_diff[-3:]),
             "\n",
         )
-        if np.mean(loss_diff[-3:]) > 0:
-            break
+        #if np.mean(loss_diff[-3:]) > 10000:
+        #    break
 
     if nan_precision:
         print("NaN precision!!")
