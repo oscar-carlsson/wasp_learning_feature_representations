@@ -45,17 +45,20 @@ class GaussianModel(tf.keras.layers.Layer):
         ) ** 0.5
 
     def grad_log_model(self, data):
-        grad_x = -tf.einsum("ij,sj->si", self.precision_matrix, (data - self.loc))
+        grad_x = tf.einsum("ij,sj->si", self.precision_matrix, (data - self.loc))
         return grad_x
 
-    def laplace_log_model(self, data):
-        return -tf.einsum("ii", self.precision_matrix)
-
     def model_loss(self, data):
-        # 1/N sum i from 1 to N (1/2*||grad_x log model(xi)||^2 + laplace log model(xi))
+        # 1/N sum i from 1 to N (1/2*||grad_x log model(xi)||^2 + laplace log model
         N = len(data)
-        loss = 1 / 2 * tf.map_fn(tf.linalg.norm, self.grad_log_model(data)) ** 2 + self.laplace_log_model(data)
-        loss = 1 / N * tf.reduce_sum(loss)
+        loss = 0
+        for sample in range(N):
+            loss = (
+                    loss
+                    + tf.linalg.norm(self.grad_log_model(data[sample])) ** 2
+            )
+
+        loss = 0.5 * (loss / N) - tf.einsum("ii", self.precision_matrix)
         return loss
 
     def data_point_weights(
@@ -244,7 +247,7 @@ class Params:
                 '''arr = tf.math.abs(
                     tf.random.uniform((self.dim, self.dim), 0.1, 1, dtype=tf.float64)
                 )'''
-                arr = tf.random.normal((self.dim, self.dim), 0, 1, dtype=tf.float64)
+                arr = tf.random.normal((self.dim, self.dim), 0, 3.5e2, dtype=tf.float64)
 
                 tmp = tf.Variable(make_symmetric(arr, mask=mask))
 

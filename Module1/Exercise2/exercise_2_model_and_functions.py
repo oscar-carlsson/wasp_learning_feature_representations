@@ -211,7 +211,7 @@ class DEM(tf.keras.layers.Layer):
         s_prime = tf.map_fn(self.s_prime, Vx)
         s_bis = tf.map_fn(self.s_bis, Vx)
 
-        sum_i_V_ni2 = tf.reduce_sum(self.V,axis=1)
+        sum_i_V_ni2 = tf.reduce_sum(tf.math.square(self.V), axis=1)
 
         w_tn_s_prime = tf.einsum(
             "ij,kj->ki",

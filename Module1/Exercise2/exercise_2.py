@@ -4,6 +4,7 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import tensorflow.keras.optimizers as optimizers
 import progressbar
+import time
 
 import exercise_1_model_and_functions as ex1
 
@@ -24,14 +25,11 @@ import scipy.linalg
  and w_k for rows in W. But let's use consistent notation.)
 """
 
-"""
-Everything below here is untouched from Exercise 1.
-Haven't started changing that code yet.
-"""
 
 """
 Setting variables for training stuff
 """
+start_time = time.asctime().replace(" ", "_")
 training_saving_directory = "/home/oscar/gitWorkspaces/wasp_learning_feature_representations_module_1/Module1/Exercise2/saving_during_training/"
 
 # Variables for gaussian training
@@ -43,7 +41,7 @@ max_epoch_gaussian = 70
 saving_gaussian_training = True
 decay_factor_gaussian = 1/2
 
-use_previous_gaussian_training = False
+use_previous_gaussian_training = True
 old_precision_matrix_name = training_saving_directory+"precision_matrix_mask_orthogonal_epoch_68.npy"
 
 whitening = False
@@ -158,6 +156,7 @@ if not use_previous_gaussian_training:
 
             prec_name = (
                 training_saving_directory
+		+ start_time + "_"
                 + "precision_matrix_correct_mean_mask_"
                 + mask_type
                 + "_epoch_"
@@ -168,6 +167,7 @@ if not use_previous_gaussian_training:
 
             loss_name = (
                 training_saving_directory
+		+ start_time + "_"
                 + "loss_for_each_step_correct_mean_mask_"
                 + mask_type
                 + "_epoch_"
@@ -286,7 +286,15 @@ while True:
 
     if saving_DEM_training:
         model.save(training_saving_directory,other="_"+str(epoch+1)+"_epochs_whitened_"+str(whitening)+"_"+mask_type+"_mask")
-        np.save(training_saving_directory+"DEM_loss_epoch_"+str(epoch+1)+"_whitened_"+str(whitening)+"_"+mask_type+"_mask.npy",epoch_loss)
+        np.save(training_saving_directory
+		+ start_time
+		+ "_DEM_loss_epoch_"
+		+ str(epoch+1)
+		+ "_whitened_"
+		+ str(whitening) + "_"
+		+ mask_type
+		+ "_mask.npy",
+		epoch_loss)
     if epoch >= 1:
         loss_diff.append(
             loss[-1] - loss[-2]
